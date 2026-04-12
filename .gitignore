@@ -33,3 +33,8 @@ desktop.ini
 *.temp
 tmp/
 temp/
+
+# Downloaded court documents (large PDFs)
+court_documents/
+downloads/
+output/
