@@ -34,7 +34,10 @@ from playwright.async_api import async_playwright
 # 配置
 # ============================================================
 
-DEFAULT_OUTPUT_DIR = Path(os.environ.get("COURT_OUTPUT_DIR", "./court_documents"))
+DEFAULT_OUTPUT_DIR = Path(os.environ.get(
+    "COURT_OUTPUT_DIR",
+    "D:/多平台同步文件/05诉讼项目/11我的法院送达文件"
+))
 
 # lark-cli 路径（subprocess 调用时优先用完整路径）
 def _get_lark_cli_path() -> str:
@@ -45,7 +48,7 @@ def _get_lark_cli_path() -> str:
             Path.home() / "AppData" / "Roaming" / "npm" / "lark-cli.cmd",
             Path(os.environ.get("APPDATA", "")) / "npm" / "lark-cli.cmd",
         ]:
-            if candidate.exists():
+            if candidate and candidate.is_file():
                 return str(candidate)
         # 兜底：交给 PATH
         return "lark-cli"
@@ -454,6 +457,9 @@ def rename_feishu_folder_api(folder_token: str, new_name: str) -> bool:
     except Exception as e:
         print(f"  [WARN] 重命名请求异常: {e}")
         return False
+
+
+def extract_text_from_pdf(pdf_path, pdf_url=None) -> dict:
     """
     从 PDF 提取文字。策略：
     1. pdfplumber 直接提取（文本型 PDF）
@@ -586,23 +592,155 @@ def ocr_pdf_with_mineru(pdf_url: str) -> str:
 # Step 4: 文书类型识别与字段提取
 # ============================================================
 
-def classify_and_extract(content: str) -> dict:
-    """识别文书类型（传票/判决书/其他）并提取关键字段"""
-    title_area = content[:800].lower()
+def _has_case_number(text: str) -> bool:
+    """检查文本中是否包含案号"""
+    case_patterns = [
+        r'[（(]\s*\d{2,4}\s*[)）]\s*\S?\s*\d{2,6}\s*\S{0,5}\s*\d{1,5}\s*号',
+        r'[（(]\s*\d{2,4}\s*[)）]\s*\S{0,10}\s*\d{1,10}\s*号',
+    ]
+    for p in case_patterns:
+        if re.search(p, text):
+            return True
+    return False
 
-    # 1. 标题区直接判断
-    if "传票" in title_area:
-        doc_type = "传票"
-    elif "判决书" in title_area:
+
+def _has_party_info(text: str) -> bool:
+    """检查文本中是否包含当事人信息（原告/被告 或 上诉人/被上诉人）"""
+    return ("原告" in text and "被告" in text) or \
+           ("上诉人" in text and "被上诉人" in text)
+
+
+def _build_case_metadata_txt(results: list, case_no: str, case_folder_name: str) -> str:
+    """
+    为整个案件生成元数据 TXT 内容，供后续读取和用户编辑。
+    上传到飞书时同时创建此文件。
+    """
+    lines = []
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    lines.append(f"# 案件信息  （自动生成于 {today}）")
+    lines.append(f"# 本文件由 court-doc-downloader 自动创建")
+    lines.append("# " + "=" * 50)
+    lines.append("")
+
+    # ── 基础信息 ──
+    lines.append("[基本信息]")
+    lines.append(f"案号: {case_no or '未知'}")
+    lines.append("")
+
+    # ── 当事人（供用户编辑）──
+    lines.append("[当事人]")
+    lines.append(f"我方当事人: ")
+    lines.append(f"对方当事人: ")
+    lines.append("")
+
+    # ── 案件信息：从传票/判决书中提取 ──
+    lines.append("[案件信息]")
+
+    # 案由
+    cause = None
+    hearing_date = None
+    court_name = None
+    plaintiff = None
+    defendant = None
+
+    for r in results:
+        fields = r.get("fields", {})
+        if not fields:
+            continue
+        if not cause:
+            cause = fields.get("cause_of_action") or fields.get("case_reason") or fields.get("案由")
+        if not hearing_date:
+            hearing_date = fields.get("hearing_date")
+        if not court_name:
+            court_name = fields.get("court_name")
+        if not plaintiff:
+            plaintiff = fields.get("plaintiff") or fields.get("上诉人") or fields.get("原告")
+        if not defendant:
+            defendant = fields.get("defendant") or fields.get("被上诉人") or fields.get("被告")
+
+    lines.append(f"案由: {cause or ''}")
+    lines.append(f"开庭时间: {hearing_date or ''}")
+    lines.append(f"受理法院: {court_name or ''}")
+    lines.append("")
+
+    # ── 我方/对方当事人（从判决书提取供参考）──
+    lines.append("[当事人（供参考）]")
+    lines.append(f"# 以下由文书自动识别，建议确认后在上方[当事人]区块填写")
+    lines.append(f"原告/上诉人: {plaintiff or ''}")
+    lines.append(f"被告/被上诉人: {defendant or ''}")
+    lines.append("")
+
+    # ── 历次送达文书记录 ──
+    lines.append("[送达记录]")
+    lines.append(f"# 格式：送达日期 | 文书类型 | 文件名")
+    lines.append(f"# 生成时间: {today}")
+    lines.append("")
+    lines.append(f"{'送达日期':<14} {'文书类型':<8} {'文件名'}")
+    lines.append("-" * 60)
+
+    # 按送达日期排序
+    sorted_results = sorted(results, key=lambda x: x.get("dt_cjsj", ""))
+
+    for r in sorted_results:
+        dt = r.get("dt_cjsj", "")
+        if dt:
+            # 格式化日期
+            try:
+                dt_obj = parse_dt_cjsj(dt)
+                if dt_obj:
+                    dt = dt_obj.strftime("%Y-%m-%d")
+            except Exception:
+                pass
+        doc_type = r.get("doc_type", "其他")
+        name = r.get("name", "未知")
+        feishu_url = r.get("feishu_url", "")
+        lines.append(f"{dt or '未知':<14} {doc_type:<8} {name}")
+        if feishu_url:
+            lines.append(f"{'':14} {'':8} 飞书: {feishu_url}")
+
+    lines.append("")
+    lines.append("[备注]")
+    lines.append(f"# 飞书文件夹: {case_folder_name}")
+    lines.append(f"# 共 {len(results)} 份送达文书")
+
+    return "\n".join(lines)
+
+
+def classify_and_extract(content: str) -> dict:
+    """
+    识别文书类型（传票/判决书/其他）并提取关键字段。
+
+    判决书识别规则（必须同时满足）：
+      1. PDF 第一页包含"人民法院判决书"字样
+      2. 包含原告/被告 或 上诉人/被上诉人
+      3. 包含案号
+    以上三条缺少任意一条，则不认定为判决书。
+    """
+    first_page = content[:1500]  # 第一页内容
+
+    # —— 判决书严格判断（三条必须同时满足）——
+    has_title       = "人民法院判决书" in first_page
+    has_parties     = _has_party_info(content)
+    has_case_no     = _has_case_number(content)
+    is_judgment     = has_title and has_parties and has_case_no
+
+    # —— 传票判断（标题含"传票"）——
+    title_area = first_page.lower()
+    is_summons = "传票" in title_area
+
+    # —— 综合判定 ——
+    if is_judgment:
         doc_type = "判决书"
+    elif is_summons:
+        doc_type = "传票"
     elif any(kw in title_area for kw in ["须知", "通知", "指南", "规定", "告知书", "权利义务"]):
         doc_type = "其他"
-    elif content.count("原告") >= 3 and content.count("被告") >= 3:
-        doc_type = "判决书"
     else:
-        summons_kw = ["传票", "开庭通知", "应诉", "举证通知"]
+        # 兜底：按关键词打分
+        summons_kw  = ["传票", "开庭通知", "应诉", "举证通知"]
         judgment_kw = ["判决书", "本院认为", "判决如下", "上诉人", "被上诉人"]
-        s_score = sum(1 for kw in summons_kw if kw in content)
+        s_score = sum(1 for kw in summons_kw  if kw in content)
         j_score = sum(1 for kw in judgment_kw if kw in content)
         doc_type = "传票" if s_score > j_score else ("判决书" if j_score > s_score else "其他")
 
@@ -903,10 +1041,13 @@ def process_single_file(
         "filepath": None,       # 本地路径（处理完毕后清空）
         "feishu_url": None,     # 飞书链接
         "feishu_token": None,   # 飞书 file_token
+        "feishu_folder_token": feishu_folder_token,  # 所属飞书文件夹
         "doc_type": None,
         "fields": {},
         "calendar_event": None,
         "error": None,
+        "case_no": None,        # 案号
+        "dt_cjsj": file_info.get("dt_cjsj", ""),  # 送达时间
     }
 
     wjlj = file_info["wjlj"]
@@ -961,6 +1102,10 @@ def process_single_file(
         if m:
             case_no_in_content = re.sub(r'\s+', '', m.group(0))
             break
+
+    # 记录案号到 result（供元数据 TXT 使用）
+    # 优先级：调用参数 unified_case_no（用户通过 --case-no 提供）> OCR 提取 > API 提取
+    result["case_no"] = case_no_in_content
 
     # 重命名文件
     if doc_type != "传票" and doc_type != "判决书" and case_no_in_content:
@@ -1258,7 +1403,58 @@ def main():
         )
         results.append(r)
 
-    # Step 7: 汇总
+    # Step 7: 为每个案号文件夹生成并上传元数据 TXT
+    print(f"\n{'=' * 60}")
+    print("Step 7: 生成元数据 TXT")
+    print("=" * 60)
+
+    # 按 folder_token 分组 results（同一案件同一文件夹）
+    folder_results: dict[str, list] = {}
+    for r in results:
+        if not r.get("success"):
+            continue
+        token = r.get("feishu_folder_token", "")
+        if token not in folder_results:
+            folder_results[token] = []
+        folder_results[token].append(r)
+
+    for folder_token, group_results in folder_results.items():
+        # 取该组共同的案号和文件夹名
+        cn = list(set(r.get("case_no") or "" for r in group_results))
+        case_no_val = cn[0] if len(cn) == 1 else (unified_case_no or "未知案号")
+
+        # 构建文件夹名（与飞书文件夹命名规则一致）
+        dt_vals = []
+        for r in group_results:
+            dt_str = r.get("dt_cjsj", "")
+            if dt_str:
+                dt_obj = parse_dt_cjsj(dt_str)
+                if dt_obj:
+                    dt_vals.append(dt_obj)
+        latest_dt = max(dt_vals) if dt_vals else datetime.now()
+        folder_name = f"{case_no_val}_{latest_dt.strftime('%Y%m%d')}" if case_no_val != "未知案号" else f"未分类_{latest_dt.strftime('%Y%m%d')}"
+
+        txt_content = _build_case_metadata_txt(group_results, case_no_val, folder_name)
+        txt_name = "案件信息.txt"
+
+        # 先写到临时文件，再上传到飞书
+        import tempfile as _tmp
+        txt_tmp = Path(_tmp.gettempdir()) / f"court_meta_{datetime.now().strftime('%Y%m%d%H%M%S')}.txt"
+        txt_tmp.write_text(txt_content, encoding="utf-8")
+
+        print(f"  生成: {txt_name}（{len(txt_content)} 字符）-> {folder_name}")
+        up = upload_file_to_feishu(str(txt_tmp), txt_name, folder_token)
+        if up.get("ok"):
+            print(f"    [OK] {up.get('url', '')}")
+        else:
+            print(f"    [FAIL] {up.get('error', '未知错误')}")
+        # 清理临时 TXT
+        try:
+            txt_tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    # Step 8: 汇总
     print(f"\n{'=' * 60}")
     print("处理结果汇总")
     print("=" * 60)
