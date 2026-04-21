@@ -10,6 +10,12 @@
 |-------|------|------|
 | [court-doc-downloader](skills/court-doc-downloader/SKILL.md) | 法院送达文书自动下载、解析与归档（支持飞书云空间 + 日历排期） | ✅ 已上线 |
 
+## Tools
+
+| Tool | 说明 | 状态 |
+|------|------|------|
+| [file-rename](tools/file-rename/SPEC.md) | 法律文件规范化重命名器（Windows 右键菜单集成，WPF/.NET 8） | ✅ 已上线 |
+
 ## 结构
 
 ```
@@ -18,6 +24,12 @@ LawyerPracticeKit/
 │   └── court-doc-downloader/  # 法院文档下载工具
 │       ├── SKILL.md           # Skill 说明与使用指南
 │       └── court_doc_downloader.py  # 核心脚本（独立可执行）
+├── tools/                     # 桌面工具
+│   └── file-rename/           # 法律文件重命名器
+│       ├── SPEC.md            # 规格说明书
+│       ├── *.xaml / *.cs      # WPF 源码
+│       ├── install.bat        # 右键菜单注册
+│       └── uninstall.bat      # 右键菜单卸载
 ├── shared/                    # 公共模块（供多 skill 复用）
 ├── README.md
 ├── .gitignore

@@ -1,0 +1,8 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Classes\*\shell\LegalFileRenamer]
+@="法律文件重命名"
+"Icon"="\"D:\\vibecodingr\\file rename\\LegalFileRenamer.exe\""
+
+[HKEY_CURRENT_USER\Software\Classes\*\shell\LegalFileRenamer\command]
+@="\"D:\\vibecodingr\\file rename\\LegalFileRenamer.exe\" \"%1\""

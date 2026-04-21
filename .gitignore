@@ -38,3 +38,11 @@ temp/
 court_documents/
 downloads/
 output/
+
+# .NET build artifacts
+bin/
+obj/
+publish/
+*.exe
+*.dll
+*.pdb
