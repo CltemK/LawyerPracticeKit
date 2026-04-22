@@ -26,7 +26,6 @@ if not exist "%EXE_PATH%" (
     exit /b 1
 )
 reg add "HKCU\Software\Classes\*\shell\LegalFileRenamer" /ve /d "法律文件重命名" /f >nul 2>&1
-reg add "HKCU\Software\Classes\*\shell\LegalFileRenamer" /v Icon /d ""%EXE_PATH%"" /f >nul 2>&1
 reg add "HKCU\Software\Classes\*\shell\LegalFileRenamer\command" /ve /d ""%EXE_PATH%" "%%1"" /f >nul 2>&1
 if %errorlevel% neq 0 (
     echo.
