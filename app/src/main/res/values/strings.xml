@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">手机守护</string>
+    <string name="title_dashboard">首页</string>
+    <string name="title_stats">统计</string>
+    <string name="title_apps">应用</string>
+    <string name="title_settings">设置</string>
+</resources>
