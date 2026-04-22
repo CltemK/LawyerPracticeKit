@@ -1,6 +1,9 @@
 package com.phoneguardian.ui.dashboard
 
 import android.app.Application
+import android.app.usage.UsageStatsManager
+import android.content.Context
+import android.os.BatteryManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.phoneguardian.data.datastore.SettingsDataStore
@@ -14,7 +17,6 @@ import com.phoneguardian.util.TimeUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -53,29 +55,28 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun loadDashboardData() {
-        viewModelScope.launch {
-            val today = TimeUtils.getTodayString()
+        // 直接读取当前电池状态
+        readBatteryDirectly()
 
-            // 获取今日亮屏时长
-            screenRepository.getTotalDurationByDate(today).collect { duration ->
-                _uiState.value = _uiState.value.copy(todayScreenTime = duration ?: 0)
-            }
-        }
-
-        viewModelScope.launch {
-            // 获取最新电池状态
-            batteryRepository.getLatestEvent().collect { event ->
-                _uiState.value = _uiState.value.copy(
-                    currentBattery = event?.level ?: 0,
-                    isCharging = event?.isCharging ?: false
-                )
-            }
-        }
+        // 读取今日亮屏时长（从数据库 + UsageStatsManager 估算）
+        loadTodayScreenTime()
 
         viewModelScope.launch {
             // 获取今日电池曲线
             batteryRepository.getTodayEvents().collect { events ->
                 _uiState.value = _uiState.value.copy(batteryCurve = events)
+            }
+        }
+
+        viewModelScope.launch {
+            // 获取最新电池事件（补充实时状态）
+            batteryRepository.getLatestEvent().collect { event ->
+                if (event != null) {
+                    _uiState.value = _uiState.value.copy(
+                        currentBattery = event.level,
+                        isCharging = event.isCharging
+                    )
+                }
             }
         }
 
@@ -89,7 +90,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
 
         viewModelScope.launch {
-            // 获取 TOP 3 应用
+            // 获取 TOP 3 应用（直接显示应用名）
             try {
                 val topApps = usageRepository.getTopAppsToday(3)
                 val appUsageList = topApps.map { (name, ms) ->
@@ -100,6 +101,49 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 // 可能没有授权 UsageStats
             }
         }
+    }
+
+    private fun readBatteryDirectly() {
+        val context = getApplication<Application>()
+        val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        val level = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        val isCharging = batteryManager.isCharging
+
+        _uiState.value = _uiState.value.copy(
+            currentBattery = level,
+            isCharging = isCharging
+        )
+    }
+
+    private fun loadTodayScreenTime() {
+        viewModelScope.launch {
+            val today = TimeUtils.getTodayString()
+
+            // 从数据库获取已记录的亮屏时长
+            screenRepository.getTotalDurationByDate(today).collect { dbDuration ->
+                // 同时从 UsageStatsManager 获取前台总时长作为补充
+                val usageStatsDuration = getUsageStatsScreenTime()
+                val total = maxOf(dbDuration ?: 0L, usageStatsDuration)
+                _uiState.value = _uiState.value.copy(todayScreenTime = total)
+            }
+        }
+    }
+
+    private fun getUsageStatsScreenTime(): Long {
+        val context = getApplication<Application>()
+        val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val startOfDay = TimeUtils.getStartOfDay()
+        val now = System.currentTimeMillis()
+
+        val stats = usageStatsManager.queryUsageStats(
+            UsageStatsManager.INTERVAL_DAILY,
+            startOfDay,
+            now
+        ) ?: return 0L
+
+        return stats
+            .filter { it.totalTimeInForeground > 0 }
+            .sumOf { it.totalTimeInForeground }
     }
 
     private suspend fun analyzeSleepStatus(summary: DailySummary?): SleepStatus {
@@ -118,7 +162,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         val expectedSleepDuration = sleepEnd - sleepStart
         val actualSleepDuration = expectedSleepDuration - summary.sleepScreenMs
 
-        val isGood = summary.sleepScreenMs < 30 * 60 * 1000 // 睡眠时段使用少于30分钟算良好
+        val isGood = summary.sleepScreenMs < 30 * 60 * 1000
 
         val message = when {
             summary.sleepScreenMs == 0L -> "昨晚睡眠充足 ✓"

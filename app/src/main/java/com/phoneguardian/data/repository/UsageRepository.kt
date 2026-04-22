@@ -3,6 +3,7 @@ package com.phoneguardian.data.repository
 import android.app.usage.UsageStats
 import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import com.phoneguardian.PhoneGuardianApp
 import com.phoneguardian.data.local.dao.DailySummaryDao
@@ -37,25 +38,9 @@ class UsageRepository {
     }
 
     fun getTopAppsToday(limit: Int = 3): List<Pair<String, Long>> {
-        val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val startOfDay = TimeUtils.getStartOfDay()
         val endOfDay = System.currentTimeMillis()
-
-        val usageStats = usageStatsManager.queryUsageStats(
-            UsageStatsManager.INTERVAL_DAILY,
-            startOfDay,
-            endOfDay
-        )
-
-        return usageStats
-            ?.filter { it.totalTimeInForeground > 0 }
-            ?.sortedByDescending { it.totalTimeInForeground }
-            ?.take(limit)
-            ?.map { stat ->
-                val appName = getAppName(stat.packageName)
-                Pair(appName, stat.totalTimeInForeground)
-            }
-            ?: emptyList()
+        return getAppsForPeriod(startOfDay, endOfDay, limit)
     }
 
     fun getAppsForPeriod(startTime: Long, endTime: Long, limit: Int = 10): List<Pair<String, Long>> {
@@ -68,7 +53,8 @@ class UsageRepository {
         )
 
         return usageStats
-            ?.filter { it.totalTimeInForeground > 0 }
+            ?.filter { it.totalTimeInForeground > 30 * 1000 } // 过滤使用少于30秒的
+            ?.filter { !isSystemApp(it.packageName) } // 过滤系统应用
             ?.sortedByDescending { it.totalTimeInForeground }
             ?.take(limit)
             ?.map { stat ->
@@ -78,13 +64,28 @@ class UsageRepository {
             ?: emptyList()
     }
 
+    private fun isSystemApp(packageName: String): Boolean {
+        return try {
+            val appInfo = context.packageManager.getApplicationInfo(packageName, 0)
+            (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0 &&
+                    context.packageManager.getApplicationLabel(appInfo).toString() == packageName
+        } catch (e: PackageManager.NameNotFoundException) {
+            true // 找不到的应用视为系统应用
+        }
+    }
+
     private fun getAppName(packageName: String): String {
         return try {
-            val pm = context.packageManager
-            val appInfo = pm.getApplicationInfo(packageName, 0)
-            pm.getApplicationLabel(appInfo).toString()
+            val appInfo = context.packageManager.getApplicationInfo(packageName, 0)
+            val label = context.packageManager.getApplicationLabel(appInfo).toString()
+            // 如果返回的是包名而不是真正的名称，尝试提取最后一段
+            if (label == packageName) {
+                packageName.substringAfterLast('.')
+            } else {
+                label
+            }
         } catch (e: PackageManager.NameNotFoundException) {
-            packageName
+            packageName.substringAfterLast('.')
         }
     }
 }

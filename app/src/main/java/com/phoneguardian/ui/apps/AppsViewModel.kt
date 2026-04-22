@@ -1,9 +1,12 @@
 package com.phoneguardian.ui.apps
 
 import android.app.Application
+import android.app.usage.UsageStatsManager
+import android.content.Context
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.phoneguardian.data.local.entity.ChargeCycle
 import com.phoneguardian.data.repository.BatteryRepository
 import com.phoneguardian.data.repository.UsageRepository
 import com.phoneguardian.util.TimeUtils
@@ -46,7 +49,7 @@ class AppsViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadAppsData() {
         viewModelScope.launch {
             try {
-                val topApps = usageRepository.getTopAppsToday(10)
+                val topApps = usageRepository.getTopAppsToday(20)
                 val appInfoList = topApps.map { (name, ms) ->
                     AppInfo(name = name, duration = ms)
                 }
