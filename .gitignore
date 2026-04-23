@@ -9,13 +9,6 @@
 .cxx
 local.properties
 
-# Keystore - never commit
-*.jks
-*.keystore
-
 # Build outputs
 /app/build
 /build
-
-# Gradle
-gradle/wrapper/gradle-wrapper.jar
