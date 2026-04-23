@@ -61,24 +61,10 @@ class DashboardFragment : Fragment() {
 
     private fun updateSleepStatus(state: DashboardUiState) {
         binding.tvSleepStatus.text = state.sleepStatus.message
-        val sleepColor = if (state.sleepStatus.isGood) {
-            resources.getColor(R.color.battery_good, null)
-        } else {
-            resources.getColor(R.color.sleep_warning, null)
-        }
-        binding.tvSleepStatus.setTextColor(sleepColor)
     }
 
     private fun updateBattery(state: DashboardUiState) {
         binding.tvBatteryLevel.text = "${state.currentBattery}%"
-
-        val batteryColor = when {
-            state.currentBattery > 50 -> R.color.battery_good
-            state.currentBattery > 20 -> R.color.battery_medium
-            else -> R.color.battery_low
-        }
-        binding.tvBatteryLevel.setTextColor(resources.getColor(batteryColor, null))
-
         binding.tvChargingStatus.text = if (state.isCharging) "充电中" else "未充电"
     }
 
@@ -87,7 +73,7 @@ class DashboardFragment : Fragment() {
             "暂无数据"
         } else {
             topApps.mapIndexed { index, app ->
-                "${index + 1}. ${app.name} ${TimeUtils.formatDuration(app.duration)}"
+                "${index + 1}. ${app.name}  ${TimeUtils.formatDuration(app.duration)}"
             }.joinToString("\n")
         }
         binding.tvTopApps.text = appText
@@ -103,6 +89,9 @@ class DashboardFragment : Fragment() {
             xAxis.apply {
                 position = XAxis.XAxisPosition.BOTTOM
                 setDrawGridLines(false)
+                setDrawAxisLine(false)
+                textColor = resources.getColor(R.color.text_tertiary, null)
+                textSize = 10f
                 granularity = 1f
             }
 
@@ -110,9 +99,15 @@ class DashboardFragment : Fragment() {
                 axisMinimum = 0f
                 axisMaximum = 100f
                 setDrawGridLines(true)
+                gridColor = resources.getColor(R.color.chart_grid, null)
+                setDrawAxisLine(false)
+                textColor = resources.getColor(R.color.text_tertiary, null)
+                textSize = 10f
             }
 
             axisRight.isEnabled = false
+
+            setViewPortOffsets(0f, 0f, 0f, 0f)
         }
     }
 
@@ -124,11 +119,13 @@ class DashboardFragment : Fragment() {
         }
 
         val dataSet = LineDataSet(entries, "电量").apply {
-            color = resources.getColor(R.color.primary, null)
-            lineWidth = 2f
+            color = resources.getColor(R.color.chart_primary, null)
+            lineWidth = 2.5f
             setDrawCircles(false)
             setDrawValues(false)
             mode = LineDataSet.Mode.CUBIC_BEZIER
+            setDrawFilled(true)
+            fillColor = resources.getColor(R.color.chart_primary_fill, null)
         }
 
         binding.chartBattery.data = LineData(dataSet)

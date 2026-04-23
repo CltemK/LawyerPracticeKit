@@ -2,117 +2,146 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="@color/background">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:paddingHorizontal="20dp"
+        android:paddingTop="24dp"
+        android:paddingBottom="16dp">
 
+        <!-- Header -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="设置"
-            android:textSize="24sp"
+            android:textSize="28sp"
             android:textStyle="bold"
+            android:textColor="@color/text_primary"
             android:layout_marginBottom="24dp" />
 
-        <!-- 睡眠时间段 -->
+        <!-- Sleep Time Section -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="睡眠时间段"
             android:textSize="12sp"
-            android:textColor="@android:color/darker_gray"
-            android:layout_marginBottom="8dp" />
-
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardSleepTime"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:textColor="@color/text_tertiary"
+            android:letterSpacing="0.08"
             android:layout_marginBottom="8dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp"
-            android:clickable="true"
-            android:focusable="true">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="16dp"
-                android:gravity="center_vertical">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="开始时间"
-                    android:textSize="16sp" />
-
-                <TextView
-                    android:id="@+id/tvSleepStartValue"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="22:00"
-                    android:textSize="16sp"
-                    android:textColor="@color/primary" />
-
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+            android:paddingStart="4dp" />
 
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardSleepEndTime"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp"
-            android:clickable="true"
-            android:focusable="true">
+            android:layout_marginBottom="20dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:cardBackgroundColor="@color/card_background"
+            app:strokeColor="@color/divider"
+            app:strokeWidth="1dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="16dp"
-                android:gravity="center_vertical">
+                android:orientation="vertical">
 
-                <TextView
-                    android:layout_width="0dp"
+                <LinearLayout
+                    android:id="@+id/cardSleepTime"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="结束时间"
-                    android:textSize="16sp" />
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="20dp"
+                    android:paddingVertical="16dp"
+                    android:gravity="center_vertical"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackground">
 
-                <TextView
-                    android:id="@+id/tvSleepEndValue"
-                    android:layout_width="wrap_content"
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="开始时间"
+                        android:textSize="15sp"
+                        android:textColor="@color/text_primary" />
+
+                    <TextView
+                        android:id="@+id/tvSleepStartValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="22:00"
+                        android:textSize="15sp"
+                        android:textColor="@color/primary"
+                        android:fontFamily="sans-serif-medium" />
+
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginHorizontal="20dp"
+                    android:background="@color/divider" />
+
+                <LinearLayout
+                    android:id="@+id/cardSleepEndTime"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="07:00"
-                    android:textSize="16sp"
-                    android:textColor="@color/primary" />
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="20dp"
+                    android:paddingVertical="16dp"
+                    android:gravity="center_vertical"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackground">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="结束时间"
+                        android:textSize="15sp"
+                        android:textColor="@color/text_primary" />
+
+                    <TextView
+                        android:id="@+id/tvSleepEndValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="07:00"
+                        android:textSize="15sp"
+                        android:textColor="@color/primary"
+                        android:fontFamily="sans-serif-medium" />
+
+                </LinearLayout>
 
             </LinearLayout>
+
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 数据保留 -->
+        <!-- Data Management Section -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="数据管理"
             android:textSize="12sp"
-            android:textColor="@android:color/darker_gray"
-            android:layout_marginBottom="8dp" />
+            android:textColor="@color/text_tertiary"
+            android:letterSpacing="0.08"
+            android:layout_marginBottom="8dp"
+            android:paddingStart="4dp" />
 
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/cardDataRetention"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp"
+            android:layout_marginBottom="20dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:cardBackgroundColor="@color/card_background"
+            app:strokeColor="@color/divider"
+            app:strokeWidth="1dp"
             android:clickable="true"
             android:focusable="true">
 
@@ -120,7 +149,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:padding="16dp"
+                android:paddingHorizontal="20dp"
+                android:paddingVertical="16dp"
                 android:gravity="center_vertical">
 
                 <TextView
@@ -128,35 +158,43 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="数据保留天数"
-                    android:textSize="16sp" />
+                    android:textSize="15sp"
+                    android:textColor="@color/text_primary" />
 
                 <TextView
                     android:id="@+id/tvRetentionDaysValue"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="90 天"
-                    android:textSize="16sp"
-                    android:textColor="@color/primary" />
+                    android:textSize="15sp"
+                    android:textColor="@color/primary"
+                    android:fontFamily="sans-serif-medium" />
 
             </LinearLayout>
+
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 权限 -->
+        <!-- Permission Section -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="权限"
             android:textSize="12sp"
-            android:textColor="@android:color/darker_gray"
-            android:layout_marginBottom="8dp" />
+            android:textColor="@color/text_tertiary"
+            android:letterSpacing="0.08"
+            android:layout_marginBottom="8dp"
+            android:paddingStart="4dp" />
 
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/cardUsagePermission"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp"
+            android:layout_marginBottom="20dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:cardBackgroundColor="@color/card_background"
+            app:strokeColor="@color/divider"
+            app:strokeWidth="1dp"
             android:clickable="true"
             android:focusable="true">
 
@@ -164,7 +202,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:padding="16dp"
+                android:paddingHorizontal="20dp"
+                android:paddingVertical="16dp"
                 android:gravity="center_vertical">
 
                 <LinearLayout
@@ -177,14 +216,16 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="使用统计权限"
-                        android:textSize="16sp" />
+                        android:textSize="15sp"
+                        android:textColor="@color/text_primary" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="查看应用使用时长"
                         android:textSize="12sp"
-                        android:textColor="@android:color/darker_gray" />
+                        android:textColor="@color/text_tertiary"
+                        android:layout_marginTop="2dp" />
 
                 </LinearLayout>
 
@@ -192,33 +233,41 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="点击授权 >"
-                    android:textSize="14sp"
-                    android:textColor="@color/primary" />
+                    android:textSize="13sp"
+                    android:textColor="@color/primary"
+                    android:fontFamily="sans-serif-medium" />
 
             </LinearLayout>
+
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 通知 -->
+        <!-- Notification Section -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="通知"
             android:textSize="12sp"
-            android:textColor="@android:color/darker_gray"
-            android:layout_marginBottom="8dp" />
+            android:textColor="@color/text_tertiary"
+            android:letterSpacing="0.08"
+            android:layout_marginBottom="8dp"
+            android:paddingStart="4dp" />
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp">
+            android:layout_marginBottom="20dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:cardBackgroundColor="@color/card_background"
+            app:strokeColor="@color/divider"
+            app:strokeWidth="1dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:padding="16dp"
+                android:paddingHorizontal="20dp"
+                android:paddingVertical="16dp"
                 android:gravity="center_vertical">
 
                 <TextView
@@ -226,60 +275,73 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="充电提醒通知"
-                    android:textSize="16sp" />
+                    android:textSize="15sp"
+                    android:textColor="@color/text_primary" />
 
                 <com.google.android.material.switchmaterial.SwitchMaterial
                     android:id="@+id/switchNotification"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" />
+                    android:layout_height="wrap_content"
+                    app:thumbTint="@color/white"
+                    app:trackTint="@color/primary_light" />
 
             </LinearLayout>
+
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 关于 -->
+        <!-- About Section -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="关于"
             android:textSize="12sp"
-            android:textColor="@android:color/darker_gray"
-            android:layout_marginBottom="8dp" />
+            android:textColor="@color/text_tertiary"
+            android:letterSpacing="0.08"
+            android:layout_marginBottom="8dp"
+            android:paddingStart="4dp" />
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp">
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:cardBackgroundColor="@color/card_background"
+            app:strokeColor="@color/divider"
+            app:strokeWidth="1dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="20dp">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="手机守护"
                     android:textSize="16sp"
-                    android:textStyle="bold" />
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="版本 1.0"
-                    android:textSize="14sp"
-                    android:textColor="@android:color/darker_gray" />
+                    android:text="版本 1.2.0"
+                    android:textSize="13sp"
+                    android:textColor="@color/text_tertiary"
+                    android:layout_marginTop="2dp" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="轻量化的手机使用监控软件\n帮助您健康生活"
-                    android:textSize="14sp"
-                    android:textColor="@android:color/darker_gray" />
+                    android:textSize="13sp"
+                    android:textColor="@color/text_secondary"
+                    android:lineSpacingExtra="4dp" />
 
             </LinearLayout>
+
         </com.google.android.material.card.MaterialCardView>
 
     </LinearLayout>

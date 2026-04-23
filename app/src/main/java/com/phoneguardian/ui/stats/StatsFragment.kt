@@ -70,13 +70,20 @@ class StatsFragment : Fragment() {
             xAxis.apply {
                 position = XAxis.XAxisPosition.BOTTOM
                 setDrawGridLines(false)
+                setDrawAxisLine(false)
                 granularity = 1f
                 labelRotationAngle = -45f
+                textColor = resources.getColor(R.color.text_tertiary, null)
+                textSize = 10f
             }
 
             axisLeft.apply {
                 setDrawGridLines(true)
+                gridColor = resources.getColor(R.color.chart_grid, null)
+                setDrawAxisLine(false)
                 axisMinimum = 0f
+                textColor = resources.getColor(R.color.text_tertiary, null)
+                textSize = 10f
             }
 
             axisRight.isEnabled = false
@@ -115,19 +122,19 @@ class StatsFragment : Fragment() {
         }
 
         val entries = state.summaries.mapIndexed { index, summary ->
-            BarEntry(index.toFloat(), summary.totalScreenMs / (1000f * 60f)) // 转换为分钟
+            BarEntry(index.toFloat(), summary.totalScreenMs / (1000f * 60f))
         }
 
-        val labels = state.summaries.map { it.date.takeLast(5) } // MM-dd
+        val labels = state.summaries.map { it.date.takeLast(5) }
 
         val dataSet = BarDataSet(entries, "亮屏时长").apply {
-            color = resources.getColor(R.color.primary, null)
+            color = resources.getColor(R.color.chart_primary, null)
             setDrawValues(false)
         }
 
         binding.barChart.xAxis.valueFormatter = IndexAxisValueFormatter(labels)
         binding.barChart.data = BarData(dataSet).apply {
-            barWidth = 0.6f
+            barWidth = 0.5f
         }
         binding.barChart.invalidate()
     }
