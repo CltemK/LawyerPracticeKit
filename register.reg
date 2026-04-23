@@ -1,0 +1,10 @@
+Windows Registry Editor Version 5.00
+
+; 此文件仅作参考，实际注册请运行 install.bat
+; install.bat 会自动使用当前目录的 exe 路径写入注册表
+
+[HKEY_CURRENT_USER\Software\Classes\*\shell\LegalFileRenamer]
+@="法律文件重命名"
+
+[HKEY_CURRENT_USER\Software\Classes\*\shell\LegalFileRenamer\command]
+@="\"C:\\REPLACE_ME\\LegalFileRenamer.exe\" \"%1\""
