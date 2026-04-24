@@ -531,7 +531,10 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             HDC dc = dis->hDC;
             RECT rc = dis->rcItem;
 
-            /* Background already drawn by WM_PAINT; just draw text */
+            /* Clear background first to prevent text overlap */
+            FillRoundRect(dc, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, 8, gBrPreview);
+            FrameRoundRect(dc, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, 8, gPenPreview);
+
             wchar_t text[MAX_PATH * 2];
             GetWindowTextW(dis->hwndItem, text, _countof(text));
             if (!*text) return TRUE;
