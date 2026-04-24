@@ -128,7 +128,7 @@ static void GetTag(HWND h, wchar_t *tag, int n) {
         GetDlgItemText(h, IDC_VER, v, 32);
         FmtVer(v, fv, 32);
         if (*fv) swprintf_s(tag, n, L"【修订%s】", fv);
-        else wcscpy_s(tag, n, L"【修订V1】");
+        else wcscpy_s(tag, n, L"【修订】");
     } else if (IsDlgButtonChecked(h, IDC_SUB_FINAL) == BST_CHECKED)
         wcscpy_s(tag, n, L"【终稿】");
     else tag[0] = 0;
@@ -147,6 +147,7 @@ static void UpdatePreview(HWND h) {
     else
         swprintf_s(buf, _countof(buf), L"%s_%s_%s%s", d, tag, name, gExt);
     SetDlgItemText(h, IDC_PREVIEW, buf);
+    InvalidateRect(GetDlgItem(h, IDC_PREVIEW), NULL, TRUE);
 }
 
 static BOOL Validate(HWND h) {
@@ -338,12 +339,11 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         MkEdit(h, IDC_VER, R_VER_E, 0);
         SendMessage(GetDlgItem(h, IDC_VER), EM_LIMITTEXT, 10, 0);
 
-        /* Preview */
+        /* Preview — owner-draw for auto font sizing */
         MkLabel(h, L"预览", R_PREV_L, gFontS, COL_ACCENT);
         HWND hp = CreateWindowExW(0, L"Static", L"",
-            WS_CHILD | WS_VISIBLE | SS_CENTER | SS_CENTERIMAGE,
+            WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
             M, R_PREV_E, CW, R_PREV_H, h, (HMENU)(INT_PTR)IDC_PREVIEW, gInst, NULL);
-        SendMessage(hp, WM_SETFONT, (WPARAM)gFontPrev, TRUE);
 
         /* Error text */
         hErr = CreateWindowExW(0, L"Static", L"",
@@ -527,6 +527,42 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
                 dis->rcItem.bottom - dis->rcItem.top, 8, gPenWarn);
             return TRUE;
         }
+        if (dis->CtlID == IDC_PREVIEW) {
+            HDC dc = dis->hDC;
+            RECT rc = dis->rcItem;
+
+            /* Background already drawn by WM_PAINT; just draw text */
+            wchar_t text[MAX_PATH * 2];
+            GetWindowTextW(dis->hwndItem, text, _countof(text));
+            if (!*text) return TRUE;
+
+            SetTextColor(dc, COL_PREVIEW_TEXT);
+            SetBkMode(dc, TRANSPARENT);
+
+            /* Auto-shrink font until text fits the preview width */
+            int pad = 16;
+            int maxW = (rc.right - rc.left) - pad;
+            int fontSize = 15;  /* start from default preview size */
+            HFONT fitFont = NULL;
+            SIZE sz;
+
+            while (fontSize >= 8) {
+                if (fitFont) DeleteObject(fitFont);
+                fitFont = CreateFontW(-fontSize, 0, 0, 0, FW_BOLD, 0, 0, 0,
+                    DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Consolas");
+                HFONT oldF = (HFONT)SelectObject(dc, fitFont);
+                GetTextExtentPoint32W(dc, text, (int)wcslen(text), &sz);
+                SelectObject(dc, oldF);
+                if (sz.cx <= maxW) break;
+                fontSize--;
+            }
+
+            HFONT oldF = (HFONT)SelectObject(dc, fitFont);
+            DrawTextW(dc, text, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            SelectObject(dc, oldF);
+            DeleteObject(fitFont);
+            return TRUE;
+        }
         return FALSE;
     }
 
@@ -588,12 +624,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             return (LRESULT)gBrWarnBg;
         }
 
-        /* Preview */
-        if (ctl == GetDlgItem(h, IDC_PREVIEW)) {
-            SetTextColor(dc, COL_PREVIEW_TEXT);
-            SetBkMode(dc, TRANSPARENT);
-            return (LRESULT)gBrPreview;
-        }
+        /* Preview — handled by WM_DRAWITEM, skip CTLCOLOR */
 
         /* Error */
         if (ctl == hErr) {
