@@ -60,7 +60,7 @@
 #define COL_BG             RGB(0xF8, 0xFA, 0xFC)    /* Page background */
 #define COL_CARD           RGB(0xFF, 0xFF, 0xFF)    /* Card white */
 #define COL_CARD_BORDER    RGB(0xE2, 0xE8, 0xF0)    /* Card border */
-#define COL_INPUT_BG       RGB(0xF1, 0xF5, 0xF9)    /* Input background */
+#define COL_INPUT_BG       RGB(0xEB, 0xF0, 0xF5)    /* Input background */
 #define COL_INPUT_BORDER   RGB(0xCB, 0xD5, 0xE1)    /* Input border */
 #define COL_INPUT_FOCUS    RGB(0x3B, 0x82, 0xF6)    /* Input focus border */
 
@@ -246,9 +246,11 @@ static HWND MkLabel(HWND h, const wchar_t *text, int y, HFONT font, COLORREF fg)
 }
 
 static HWND MkEdit(HWND h, int id, int y, DWORD extra) {
+    /* 1px inset so parent-drawn border is visible around the edit */
     HWND ctl = CreateWindowExW(0, L"Edit", L"",
         WS_CHILD | WS_VISIBLE | extra,
-        M + CARD_PAD, y, CW - 2 * CARD_PAD, EH, h, (HMENU)(INT_PTR)id, gInst, NULL);
+        M + CARD_PAD + 1, y + 1, CW - 2 * CARD_PAD - 2, EH - 2,
+        h, (HMENU)(INT_PTR)id, gInst, NULL);
     SendMessage(ctl, WM_SETFONT, (WPARAM)gFont, TRUE);
     return ctl;
 }
@@ -424,6 +426,12 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         int cardH = R_VER_E + EH + 8 - cardTop;
         FillRoundRect(dc, M - CARD_PAD, cardTop, CW + 2 * CARD_PAD, cardH, CARD_R, gBrCard);
         FrameRoundRect(dc, M - CARD_PAD, cardTop, CW + 2 * CARD_PAD, cardH, CARD_R, gPenCard);
+
+        /* Input field borders */
+        int inputs[] = { R_ORIG_E, R_DATE_E, R_NAME_E, R_VER_E };
+        for (int i = 0; i < 4; i++) {
+            FrameRoundRect(dc, M + CARD_PAD, inputs[i], CW - 2 * CARD_PAD, EH, 5, gPenInput);
+        }
 
         /* Preview card */
         FillRoundRect(dc, M - 2, R_PREV_E - 4, CW + 4, R_PREV_H + 8, 8, gBrPreview);
