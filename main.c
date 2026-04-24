@@ -157,7 +157,14 @@ static BOOL Validate(HWND h) {
     if (wcslen(d) != 8) { SetDlgItemText(h, IDC_ERR, L"日期格式错误，请输入8位数字（如 20260418）"); return FALSE; }
     for (int i = 0; i < 8; i++)
         if (!IsD(d[i])) { SetDlgItemText(h, IDC_ERR, L"日期格式错误，请输入8位数字"); return FALSE; }
-    int y = _wtoi(d), mo = _wtoi(d + 4), dd = _wtoi(d + 6);
+    int y, mo, dd;
+    {   /* _wtoi reads the whole string; extract substrings first */
+        wchar_t ys[5] = {0}, ms[3] = {0}, ds[3] = {0};
+        wcsncpy_s(ys, 5, d, 4);
+        wcsncpy_s(ms, 3, d + 4, 2);
+        wcsncpy_s(ds, 3, d + 6, 2);
+        y = _wtoi(ys); mo = _wtoi(ms); dd = _wtoi(ds);
+    }
     if (y < 1900 || y > 2100 || mo < 1 || mo > 12 || dd < 1 || dd > 31) {
         SetDlgItemText(h, IDC_ERR, L"日期范围错误"); return FALSE;
     }
