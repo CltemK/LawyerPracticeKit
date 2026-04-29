@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+build/
+dist/
+*.spec.bak
+config.json
+config.key
+test_output.docx
+test_images/
+*.egg-info/
+.eggs/
+*.egg

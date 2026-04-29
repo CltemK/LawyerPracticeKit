@@ -38,3 +38,8 @@ temp/
 court_documents/
 downloads/
 output/
+
+# C / Win32 build artifacts
+*.obj
+*.res
+*.exe
