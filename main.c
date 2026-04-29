@@ -4,6 +4,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shlwapi.h>
+#include <shlobj.h>
 #include <wchar.h>
 #include <stdlib.h>
 #include "resource.h"
@@ -76,17 +77,19 @@
 
 /* ---- Globals ---- */
 static HINSTANCE gInst;
-static HFONT gFont, gFontB, gFontS, gFontTitle, gFontPrev, gFontBtn;
+static HFONT gFont, gFontB, gFontS, gFontTitle, gFontBtn;
 static HBRUSH gBrBg, gBrCard, gBrInput, gBrPreview, gBrWarnBg;
-static HBRUSH gBrPrimary, gBrAccent, gBrSuccess, gBrDanger;
+static HBRUSH gBrPrimary, gBrAccent;
 static HBRUSH gBrBtnOk, gBrBtnOkH, gBrBtnCancel, gBrBtnCancelH;
 static HBRUSH gBrBtnFin, gBrBtnFinH;
 static HPEN gPenCard, gPenInput, gPenInputFocus, gPenPreview, gPenWarn;
 static HWND hSubDraft, hSubRev, hSubFinal;
-static HWND hFinBg, hFinText, hFinBtn, hHeader;
+static HWND hFinBg, hFinText, hFinBtn, hHeader, hSubtitle;
 static HWND hErr;
 static HWND hBtnOk, hBtnCancel;
 static BOOL gHoverOk, gHoverCancel, gHoverFin;
+static HFONT gPreviewFitFont;
+static wchar_t gPreviewFitText[MAX_PATH * 2];
 
 static wchar_t gPath[MAX_PATH], gName[MAX_PATH], gExt[32];
 static BOOL gLawyer, gReady;
@@ -99,7 +102,6 @@ static void FillRoundRect(HDC dc, int x, int y, int w, int h, int r, HBRUSH br) 
 }
 
 static void FrameRoundRect(HDC dc, int x, int y, int w, int h, int r, HPEN pen) {
-    HRGN rgn = CreateRoundRectRgn(x, y, x + w, y + h, r * 2, r * 2);
     HPEN old = (HPEN)SelectObject(dc, pen);
     HBRUSH oldBr = (HBRUSH)SelectObject(dc, GetStockObject(NULL_BRUSH));
     RoundRect(dc, x, y, x + w, y + h, r * 2, r * 2);
@@ -142,10 +144,14 @@ static void UpdatePreview(HWND h) {
     GetDlgItemText(h, IDC_FNAME, name, MAX_PATH);
     GetDlgItemText(h, IDC_VER, v, 32);
     FmtVer(v, fv, 32);
-    if (*fv)
+    if (*tag && *fv)
         swprintf_s(buf, _countof(buf), L"%s_%s_%s_%s%s", d, tag, name, fv, gExt);
-    else
+    else if (*tag)
         swprintf_s(buf, _countof(buf), L"%s_%s_%s%s", d, tag, name, gExt);
+    else if (*fv)
+        swprintf_s(buf, _countof(buf), L"%s_%s_%s%s", d, name, fv, gExt);
+    else
+        swprintf_s(buf, _countof(buf), L"%s_%s%s", d, name, gExt);
     SetDlgItemText(h, IDC_PREVIEW, buf);
     InvalidateRect(GetDlgItem(h, IDC_PREVIEW), NULL, TRUE);
 }
@@ -168,21 +174,33 @@ static BOOL Validate(HWND h) {
     if (y < 1900 || y > 2100 || mo < 1 || mo > 12 || dd < 1 || dd > 31) {
         SetDlgItemText(h, IDC_ERR, L"日期范围错误"); return FALSE;
     }
+    {   /* Check actual days in month */
+        static const int mdays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+        int maxd = mdays[mo - 1];
+        if (mo == 2 && (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0))) maxd = 29;
+        if (dd > maxd) { SetDlgItemText(h, IDC_ERR, L"日期范围错误"); return FALSE; }
+    }
     wchar_t name[MAX_PATH]; GetDlgItemText(h, IDC_FNAME, name, MAX_PATH);
     if (!*name) { SetDlgItemText(h, IDC_ERR, L"文件名称不能为空"); return FALSE; }
+    for (const wchar_t *p = name; *p; p++) {
+        if (wcschr(L"<>:\"/\\|?*", *p)) {
+            SetDlgItemText(h, IDC_ERR, L"文件名包含非法字符"); return FALSE;
+        }
+    }
     wchar_t v[32]; GetDlgItemText(h, IDC_VER, v, 32);
     if (*v) {
         const wchar_t *p = v;
         if (*p == L'V' || *p == L'v') p++;
-        if (!IsD(*p)) goto badver;
+        if (!IsD(*p)) { SetDlgItemText(h, IDC_ERR, L"版本号格式错误，只需输入数字（如 1、1.1）"); return FALSE; }
         while (IsD(*p)) p++;
-        if (*p == L'.') { p++; if (!IsD(*p)) goto badver; while (IsD(*p)) p++; }
-        if (*p) goto badver;
+        if (*p == L'.') {
+            p++;
+            if (!IsD(*p)) { SetDlgItemText(h, IDC_ERR, L"版本号格式错误，只需输入数字（如 1、1.1）"); return FALSE; }
+            while (IsD(*p)) p++;
+        }
+        if (*p) { SetDlgItemText(h, IDC_ERR, L"版本号格式错误，只需输入数字（如 1、1.1）"); return FALSE; }
     }
     return TRUE;
-badver:
-    SetDlgItemText(h, IDC_ERR, L"版本号格式错误，只需输入数字（如 1、1.1）");
-    return FALSE;
 }
 
 static BOOL TryParse(const wchar_t *nm, wchar_t *date, wchar_t *tag, wchar_t *fn, wchar_t *ver) {
@@ -199,7 +217,7 @@ static BOOL TryParse(const wchar_t *nm, wchar_t *date, wchar_t *tag, wchar_t *fn
     size_t tl = te - r + 1;
     wcsncpy_s(tag, 64, r, tl);
     wchar_t tc[64]; wcsncpy_s(tc, 64, r + 1, (size_t)(te - r - 1));
-    if (wcscmp(tc, L"客户") && wcscmp(tc, L"初稿") && wcscmp(tc, L"终稿")) {
+    if (wcscmp(tc, L"客户") && wcscmp(tc, L"初稿") && wcscmp(tc, L"终稿") && wcscmp(tc, L"修订")) {
         if (wcsncmp(tc, L"修订V", 3) == 0 || wcsncmp(tc, L"修订v", 3) == 0) {
             const wchar_t *p = tc + 3;
             while (*p) { if (!IsD(*p) && *p != L'.') return FALSE; p++; }
@@ -245,7 +263,7 @@ static void UpdateFinVis(HWND h) {
 }
 
 /* ---- Create controls ---- */
-static HWND MkLabel(HWND h, const wchar_t *text, int y, HFONT font, COLORREF fg) {
+static HWND MkLabel(HWND h, const wchar_t *text, int y, HFONT font) {
     HWND ctl = CreateWindowExW(0, L"Static", text,
         WS_CHILD | WS_VISIBLE, M, y, CW, LH, h, NULL, gInst, NULL);
     SendMessage(ctl, WM_SETFONT, (WPARAM)font, TRUE);
@@ -303,9 +321,9 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         SendMessage(hHeader, WM_SETFONT, (WPARAM)gFontTitle, TRUE);
 
         /* Subtitle */
-        HWND hSub = CreateWindowExW(0, L"Static", L"规范化命名，高效管理法律文档",
+        hSubtitle = CreateWindowExW(0, L"Static", L"规范化命名，高效管理法律文档",
             WS_CHILD | WS_VISIBLE, M, 46, CW, 16, h, NULL, gInst, NULL);
-        SendMessage(hSub, WM_SETFONT, (WPARAM)gFontS, TRUE);
+        SendMessage(hSubtitle, WM_SETFONT, (WPARAM)gFontS, TRUE);
 
         /* Finalize bar (hidden by default) */
         hFinBg = CreateWindowExW(0, L"Static", NULL,
@@ -320,17 +338,17 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             (HMENU)(INT_PTR)IDC_FINALIZE, gInst, NULL);
 
         /* Original path (read-only) */
-        MkLabel(h, L"原文件", R_ORIG_L, gFontS, COL_TEXT_MUTED);
+        MkLabel(h, L"原文件", R_ORIG_L, gFontS);
         MkEdit(h, IDC_ORIG, R_ORIG_E, ES_READONLY);
         SetDlgItemText(h, IDC_ORIG, gPath);
 
         /* Date */
-        MkLabel(h, L"日期  YYYYMMDD", R_DATE_L, gFontS, COL_TEXT_MUTED);
+        MkLabel(h, L"日期  YYYYMMDD", R_DATE_L, gFontS);
         MkEdit(h, IDC_DATE, R_DATE_E, 0);
         SendMessage(GetDlgItem(h, IDC_DATE), EM_LIMITTEXT, 8, 0);
 
         /* Category */
-        MkLabel(h, L"文件类型", R_CAT_L, gFontS, COL_TEXT_MUTED);
+        MkLabel(h, L"文件类型", R_CAT_L, gFontS);
         MkRadio(h, IDC_CAT_CLI, L"客户文件", M + 14, R_CAT_R, 100, TRUE);
         MkRadio(h, IDC_CAT_LAW, L"律师文件", M + 130, R_CAT_R, 100, FALSE);
 
@@ -340,16 +358,16 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         hSubFinal = MkRadio(h, IDC_SUB_FINAL,  L"终稿", M + 220, R_SUB_R, 80, FALSE);
 
         /* File name */
-        MkLabel(h, L"文件名称", R_NAME_L, gFontS, COL_TEXT_MUTED);
+        MkLabel(h, L"文件名称", R_NAME_L, gFontS);
         MkEdit(h, IDC_FNAME, R_NAME_E, 0);
 
         /* Version */
-        MkLabel(h, L"版本号  只需输入数字，如 1、1.1", R_VER_L, gFontS, COL_TEXT_MUTED);
+        MkLabel(h, L"版本号  只需输入数字，如 1、1.1", R_VER_L, gFontS);
         MkEdit(h, IDC_VER, R_VER_E, 0);
         SendMessage(GetDlgItem(h, IDC_VER), EM_LIMITTEXT, 10, 0);
 
         /* Preview — owner-draw for auto font sizing */
-        MkLabel(h, L"预览", R_PREV_L, gFontS, COL_ACCENT);
+        MkLabel(h, L"预览", R_PREV_L, gFontS);
         HWND hp = CreateWindowExW(0, L"Static", L"",
             WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
             M, R_PREV_E, CW, R_PREV_H, h, (HMENU)(INT_PTR)IDC_PREVIEW, gInst, NULL);
@@ -466,30 +484,31 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             if (!Validate(h)) return 0;
             wchar_t buf[MAX_PATH * 2];
             GetDlgItemText(h, IDC_PREVIEW, buf, _countof(buf));
-            wchar_t drive[_MAX_DRIVE], d[_MAX_DIR];
-            _wsplitpath_s(gPath, drive, _MAX_DRIVE, d, _MAX_DIR, NULL, 0, NULL, 0);
+            wchar_t drive[_MAX_DRIVE], dir[_MAX_DIR];
+            _wsplitpath_s(gPath, drive, _MAX_DRIVE, dir, _MAX_DIR, NULL, 0, NULL, 0);
             wchar_t dirBuf[MAX_PATH];
-            swprintf_s(dirBuf, _countof(dirBuf), L"%s%s", drive, d);
+            swprintf_s(dirBuf, _countof(dirBuf), L"%s%s", drive, dir);
             wchar_t newPath[MAX_PATH];
             swprintf_s(newPath, _countof(newPath), L"%s%s", dirBuf, buf);
+            BOOL ok;
             if (wcscmp(gPath, newPath) != 0 && GetFileAttributesW(newPath) != INVALID_FILE_ATTRIBUTES) {
                 if (MessageBoxW(h, L"文件已存在，是否覆盖？", L"确认",
                         MB_YESNO | MB_ICONWARNING) != IDYES)
                     return 0;
-                MoveFileExW(gPath, newPath, MOVEFILE_REPLACE_EXISTING);
+                ok = MoveFileExW(gPath, newPath, MOVEFILE_REPLACE_EXISTING);
             } else {
-                MoveFileW(gPath, newPath);
+                ok = MoveFileW(gPath, newPath);
             }
-            DWORD err = GetLastError();
-            if (err != 0) {
+            if (!ok) {
+                DWORD err = GetLastError();
                 wchar_t emsg[256];
                 FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM, NULL, err, 0, emsg, 256, NULL);
                 wchar_t msg[512];
                 swprintf_s(msg, _countof(msg), L"重命名失败：%s", emsg);
                 SetDlgItemText(h, IDC_ERR, msg);
-                SetLastError(0);
                 return 0;
             }
+            SHChangeNotify(SHCNE_RENAMEITEM, SHCNF_PATH, gPath, newPath);
             MessageBoxW(h, buf, L"重命名成功", MB_OK | MB_ICONINFORMATION);
             PostQuitMessage(0);
             return 0;
@@ -557,28 +576,38 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             SetTextColor(dc, COL_PREVIEW_TEXT);
             SetBkMode(dc, TRANSPARENT);
 
-            /* Auto-shrink font until text fits the preview width */
-            int pad = 16;
-            int maxW = (rc.right - rc.left) - pad;
-            int fontSize = 15;  /* start from default preview size */
-            HFONT fitFont = NULL;
-            SIZE sz;
+            /* Reuse cached font if text hasn't changed */
+            if (wcscmp(text, gPreviewFitText) != 0) {
+                wcscpy_s(gPreviewFitText, _countof(gPreviewFitText), text);
+                int pad = 16;
+                int maxW = (rc.right - rc.left) - pad;
+                int fontSize = 15;
+                SIZE sz;
 
-            while (fontSize >= 8) {
-                if (fitFont) DeleteObject(fitFont);
-                fitFont = CreateFontW(-fontSize, 0, 0, 0, FW_BOLD, 0, 0, 0,
-                    DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Consolas");
-                HFONT oldF = (HFONT)SelectObject(dc, fitFont);
-                GetTextExtentPoint32W(dc, text, (int)wcslen(text), &sz);
-                SelectObject(dc, oldF);
-                if (sz.cx <= maxW) break;
-                fontSize--;
+                while (fontSize >= 8) {
+                    HFONT tmp = CreateFontW(-fontSize, 0, 0, 0, FW_BOLD, 0, 0, 0,
+                        DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Consolas");
+                    HFONT oldTmp = (HFONT)SelectObject(dc, tmp);
+                    GetTextExtentPoint32W(dc, text, (int)wcslen(text), &sz);
+                    SelectObject(dc, oldTmp);
+                    if (sz.cx <= maxW) {
+                        if (gPreviewFitFont) DeleteObject(gPreviewFitFont);
+                        gPreviewFitFont = tmp;
+                        break;
+                    }
+                    DeleteObject(tmp);
+                    fontSize--;
+                }
+                if (fontSize < 8) {
+                    if (gPreviewFitFont) DeleteObject(gPreviewFitFont);
+                    gPreviewFitFont = CreateFontW(-8, 0, 0, 0, FW_BOLD, 0, 0, 0,
+                        DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Consolas");
+                }
             }
 
-            HFONT oldF = (HFONT)SelectObject(dc, fitFont);
+            HFONT oldF = (HFONT)SelectObject(dc, gPreviewFitFont);
             DrawTextW(dc, text, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             SelectObject(dc, oldF);
-            DeleteObject(fitFont);
             return TRUE;
         }
         return FALSE;
@@ -621,15 +650,17 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         HDC dc = (HDC)wp;
         HWND ctl = (HWND)lp;
 
-        /* Header title & subtitle */
+        /* Header title */
         if (ctl == hHeader) {
             SetTextColor(dc, COL_TEXT_WHITE);
             SetBkMode(dc, TRANSPARENT);
             return (LRESULT)gBrPrimary;
         }
-        /* Subtitle */
-        if (ctl == GetWindow(h, GW_CHILD) && GetParent(ctl) == h) {
-            /* skip, handled below */
+        /* Subtitle (inside dark header band) */
+        if (ctl == hSubtitle) {
+            SetTextColor(dc, COL_TEXT_WHITE);
+            SetBkMode(dc, TRANSPARENT);
+            return (LRESULT)gBrPrimary;
         }
 
         /* Finalize bar */
@@ -680,11 +711,8 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_HSCROLL:
         return 0;
 
-    case WM_ERASEBKGND: {
-        RECT rc; GetClientRect(h, &rc);
-        FillRect((HDC)wp, &rc, gBrBg);
+    case WM_ERASEBKGND:
         return TRUE;
-    }
 
     case WM_DESTROY:
         PostQuitMessage(0);
@@ -735,8 +763,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPWSTR cmdLine, int nC
         0, 0, CLEARTYPE_QUALITY, 0, L"Microsoft YaHei UI");
     gFontTitle = CreateFontW(-22, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET,
         0, 0, CLEARTYPE_QUALITY, 0, L"Microsoft YaHei UI");
-    gFontPrev = CreateFontW(-15, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET,
-        0, 0, CLEARTYPE_QUALITY, 0, L"Consolas");
     gFontBtn = CreateFontW(-14, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET,
         0, 0, CLEARTYPE_QUALITY, 0, L"Microsoft YaHei UI");
 
@@ -748,8 +774,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPWSTR cmdLine, int nC
     gBrWarnBg   = CreateSolidBrush(COL_WARN_BG);
     gBrPrimary  = CreateSolidBrush(COL_PRIMARY);
     gBrAccent   = CreateSolidBrush(COL_ACCENT);
-    gBrSuccess  = CreateSolidBrush(COL_SUCCESS);
-    gBrDanger   = CreateSolidBrush(COL_DANGER);
     gBrBtnOk      = CreateSolidBrush(COL_SUCCESS);
     gBrBtnOkH     = CreateSolidBrush(COL_SUCCESS_HOVER);
     gBrBtnCancel  = CreateSolidBrush(COL_CARD);
@@ -760,7 +784,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPWSTR cmdLine, int nC
     /* Pens */
     gPenCard      = CreatePen(PS_SOLID, 1, COL_CARD_BORDER);
     gPenInput     = CreatePen(PS_SOLID, 1, COL_INPUT_BORDER);
-    gPenInputFocus= CreatePen(PS_SOLID, 2, COL_INPUT_FOCUS);
     gPenPreview   = CreatePen(PS_SOLID, 1, COL_PREVIEW_BORDER);
     gPenWarn      = CreatePen(PS_SOLID, 1, COL_WARN_BORDER);
 
@@ -785,6 +808,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPWSTR cmdLine, int nC
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
         (sx - realW) / 2, (sy - realH) / 2, realW, realH,
         NULL, NULL, hInst, NULL);
+    if (!hwnd) goto cleanup;
 
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
@@ -797,12 +821,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPWSTR cmdLine, int nC
         }
     }
 
-    /* Cleanup */
+cleanup:
+    if (gPreviewFitFont) DeleteObject(gPreviewFitFont);
     DeleteObject(gFont);
     DeleteObject(gFontB);
     DeleteObject(gFontS);
     DeleteObject(gFontTitle);
-    DeleteObject(gFontPrev);
     DeleteObject(gFontBtn);
     DeleteObject(gBrBg);
     DeleteObject(gBrCard);
@@ -811,8 +835,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPWSTR cmdLine, int nC
     DeleteObject(gBrWarnBg);
     DeleteObject(gBrPrimary);
     DeleteObject(gBrAccent);
-    DeleteObject(gBrSuccess);
-    DeleteObject(gBrDanger);
     DeleteObject(gBrBtnOk);
     DeleteObject(gBrBtnOkH);
     DeleteObject(gBrBtnCancel);
@@ -821,7 +843,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPWSTR cmdLine, int nC
     DeleteObject(gBrBtnFinH);
     DeleteObject(gPenCard);
     DeleteObject(gPenInput);
-    DeleteObject(gPenInputFocus);
     DeleteObject(gPenPreview);
     DeleteObject(gPenWarn);
 
