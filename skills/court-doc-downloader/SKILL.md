@@ -2,17 +2,24 @@
 
 ## Description
 
-法院送达文书下载工具（v7）。从 zxfw.court.gov.cn 下载所有送达 PDF，自动进行文字提取与 OCR 识别，根据文书类型自动命名，**同时保存到本地指定目录**和上传至飞书云空间（按案号归类），并为传票创建飞书团队日历开庭日程。每个案号文件夹内会上传一份 `案件信息.txt`，包含识别的案件信息和供用户编辑的我方/对方当事人字段。
+法院送达文书下载工具（v8）。从 zxfw.court.gov.cn 下载所有送达 PDF，或处理微信等渠道传来的传票图片/扫描件，自动进行文字提取与 OCR 识别，根据文书类型自动命名，**同时保存到本地指定目录**和上传至飞书云空间（按案号归类），并为传票创建飞书团队日历开庭日程。每个案号文件夹内会上传一份 `案件信息.txt`，包含识别的案件信息和供用户编辑的我方/对方当事人字段。
 
 ## Use Cases
 
-用户发送包含法院送达链接的消息时使用。完整流程：获取文件列表 → 按案号分组 → 逐个下载到临时目录 → PDF 文字提取 → 文书识别 → 自动命名 → 上传飞书云空间 →（传票则创建飞书日历）。
+用户发送包含法院送达链接的消息**或上传传票图片/PDF附件**时使用。完整流程：获取文件列表 → 按案号分组 → 逐个下载到临时目录 → PDF 文字提取/OCR 识别 → 文书识别 → 自动命名 → 上传飞书云空间 →（传票则创建飞书日历）。
+
+**支持的输入类型：**
+- 法院送达链接（zxfw.court.gov.cn）
+- 微信/其他渠道传来的传票图片（.jpg/.png）或 PDF 扫描件（均视为传票处理）
 
 ## Execution
 
 ```bash
-# 默认上传到飞书云空间根目录，按案号自动归类
+# 法院送达链接（默认流程）
 python court_doc_downloader.py <URL>
+
+# 处理本地上传的传票图片/PDF（识别后按文书类型处理）
+python court_doc_downloader.py --local-file <文件路径>
 
 # 指定飞书父文件夹（传入 folder_token）
 python court_doc_downloader.py <URL> --parent-folder <folder_token>
@@ -125,6 +132,122 @@ python court_doc_downloader.py <URL> --files "1,3,5"
 | `COURT_OUTPUT_DIR` | 本地保存目录（同时上传到飞书） | `D:/多平台同步文件/05诉讼项目/11我的法院送达文件` |
 | `LARK_CLI_PATH` | lark-cli 可执行文件路径（可选） | 自动查找 |
 | `MINERU_EXTRACT_SCRIPT` | MinerU OCR 脚本路径（可选） | `mineru_parse_documents.py`（同目录）|
+| `CHROME_DATA_DIR` | Chrome 用户数据目录（用于案例库认证） | 空（必填才能搜索/下载）|
+| `CHROME_PROFILE` | Chrome profile 子目录（配合 CHROME_DATA_DIR 使用） | `Default` |
+
+---
+
+## 人民法院案例库（rmfyalk）功能
+
+### 概述
+
+除法院送达文书外，本 Skill 还支持搜索并下载**人民法院案例库**（rmfyalk.court.gov.cn）的案例。
+
+**注意**：人民法院案例库需要已登录的浏览器会话。执行前请确保已在 Chrome 中登录案例库网站。
+
+### 系统说明
+
+- **网站地址**：`https://rmfyalk.court.gov.cn`
+- **认证方式**：OAuth 登录（Cookie/Session），需要浏览器已登录
+- **数据格式**：案例正文为 HTML 格式（含基本案情、裁判理由、裁判要旨、关联索引）；PDF 下载通过 API 获取
+- **收录规模**：截至 2026 年 4 月，收录约 5377 篇案例
+
+### 搜索参数说明
+
+| 参数 | 含义 | 示例 |
+|------|------|------|
+| `key=qw` | 全文检索 | `key=qw` |
+| `key=ay` | 案由检索 | `key=ay` |
+| `isAdvSearch=0` | 非高级检索（普通搜索） | `isAdvSearch=0` |
+| `isAdvSearch=1/2` | 高级检索（精确/模糊） | `isAdvSearch=2` |
+| `lib=cpwsAl_qb` | 案例库全文检索 | `lib=cpwsAl_qb` |
+| `lib=ck` | 参考案例 | `lib=ck` |
+| `lib=zdx` | 指导性案例 | `lib=zdx` |
+
+### 搜索结果字段说明
+
+每个搜索结果包含以下字段：
+
+| 字段 | 含义 | 示例 |
+|------|------|------|
+| `title` | 案例标题 | 扬州四某环保设备有限公司诉... |
+| `case_no` | 案号 | （2022）最高法知民终2527号 |
+| `court` | 审理法院 | 最高人民法院 |
+| `date` | 裁判日期 | 2024.10.23 |
+| `category` | 案件类型 | 民事/刑事/行政/执行/国家赔偿 |
+| `reason` | 案由 | 发明专利权权属、侵权纠纷 |
+| `procedure` | 审理程序 | 一审/二审/再审/其他审理程序 |
+| `storage_date` | 入库日期 | 2026.04.13 |
+| `id` | 案例 ID（Base64 编码） | lmACF1R47BWcr2N... |
+| `lib` | 案例类型 | `ck`=参考案例, `zdx`=指导性案例 |
+
+### 用法
+
+```bash
+# 搜索案例（仅搜索，不下载）
+python rmfyalk_downloader.py search "<关键词>" --pages 3
+
+# 搜索 + 下载全部结果
+python rmfyalk_downloader.py search "<关键词>" --pages 3 --download
+
+# 搜索 + 下载指定序号（第1、3、5条）
+python rmfyalk_downloader.py search "<关键词>" --indices "1,3,5"
+
+# 指定输出目录
+python rmfyalk_downloader.py search "<关键词>" --output "D:/案例"
+
+# 获取单个案例详情（JSON）
+python rmfyalk_downloader.py case "<案例URL或ID>"
+
+# 下载指定案例（通过URL或ID）
+python rmfyalk_downloader.py download "<案例ID>" --output "D:/案例"
+```
+
+### 输出说明
+
+- **下载文件**：`{案号}.pdf`（如 `（2022）最高法知民终2527号.pdf`）
+- **JSON 元数据**：每个案例同时保存同名的 `.json` 文件
+- **搜索结果汇总**：所有案例搜索后保存 `搜索结果_{关键词}_{数量}条.json`
+
+### 案例解析字段（JSON）
+
+下载的 JSON 包含完整的案例结构化信息：
+
+| 字段 | 含义 |
+|------|------|
+| `title` | 完整标题（含副标题） |
+| `case_no` | 案号 |
+| `court` | 审理法院 |
+| `date` | 裁判日期 |
+| `category` | 案件类型 |
+| `reason` | 案由 |
+| `procedure` | 审理程序 |
+| `storage_date` | 入库日期 |
+| `裁判要旨` | 裁判要点（核心适用规则） |
+| `基本案情` | 案件事实摘要 |
+| `裁判理由` | 法院论述 |
+| `关联索引` | 引用法条及关联案件 |
+| `download_url` | PDF 下载直链 |
+
+### 注意事项
+
+1. **认证（关键）**：人民法院案例库需要有效登录会话，否则搜索返回空结果。
+   配置方式：将 Chrome 用户数据目录路径设为环境变量，例如：
+   ```bash
+   # Windows PowerShell
+   $env:CHROME_DATA_DIR = "$env:LOCALAPPDATA\Google\Chrome\User Data"
+   # 然后运行脚本
+   python rmfyalk_downloader.py search "关键词" --pages 3
+   ```
+   注意：需要 Chrome **完全关闭**（无任何 Chrome 窗口运行）才能使用同一用户数据目录。
+
+2. **翻页**：默认搜索 3 页（约 30 条），如需更多结果增加 `--pages` 参数
+3. **下载限制**：指导性案例（lib=zdx）下载方式与参考案例相同
+4. **文件命名**：优先使用案号命名；无案号时截取标题前30字
+5. **OCR**：案例正文为 HTML，无需 OCR；仅当需要原始 PDF 时下载
+6. **无认证时**：如果无法配置 Chrome 目录，可以先在 Chrome 中登录案例库，然后让我（AI助手）通过浏览器自动化工具帮你搜索和下载案例
+
+---
 
 ## 依赖
 
@@ -133,3 +256,5 @@ python court_doc_downloader.py <URL> --files "1,3,5"
 | `pdfplumber` | 文本型 PDF 文字提取 | 已预装 |
 | `mineru-extract` skill | 扫描型 PDF OCR（MinerU API） | 已安装（通过 skill 本地 .env 配置 MINERU_TOKEN） |
 | `lark-cli` | 飞书云空间上传 & 团队日历创建 | 需已安装并授权 |
+| `playwright` | 浏览器自动化（案例库搜索/下载） | 已安装 |
+| Chrome 浏览器 | 案例库认证（需在 Chrome 中登录 rmfyalk.court.gov.cn） | 用户自行配置 |

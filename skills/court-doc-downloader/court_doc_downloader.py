@@ -1190,9 +1190,11 @@ def parse_dt_cjsj(dt_cjsj: str) -> datetime | None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="法院送达文书下载器 v7（飞书云空间 + 按案号归类）"
+        description="法院送达文书下载器 v8（飞书云空间 + 按案号归类 + 支持本地图片）"
     )
-    parser.add_argument("url", help="法院送达页面完整 URL")
+    parser.add_argument("url", nargs="?", default=None, help="法院送达页面完整 URL")
+    parser.add_argument("--local-file", default=None,
+                        help="处理本地上传的传票图片/PDF（微信传来的附件等）")
     parser.add_argument("--parent-folder", default=None,
                         help='飞书云空间父文件夹 token（默认使用环境变量 COURT_FEISHU_FOLDER_TOKEN）')
     parser.add_argument("--skip-calendar", action="store_true", help="跳过飞书日历创建")
@@ -1206,6 +1208,167 @@ def main():
                              "优先使用此参数；未提供时尝试从文书名OCR提取。")
 
     args = parser.parse_args()
+
+    # ── 本地文件模式（微信图片等）──────────────────────────────
+    if args.local_file:
+        from PIL import Image  # 确认依赖
+        import hashlib
+
+        local_path = Path(args.local_file).resolve()
+        if not local_path.exists():
+            print(f"[FAIL] 文件不存在: {local_path}")
+            sys.exit(1)
+
+        print("=" * 60)
+        print("本地文件模式")
+        print("=" * 60)
+        print(f"文件: {local_path}")
+        print(f"大小: {local_path.stat().st_size / 1024:.1f} KB")
+
+        suffix = local_path.suffix.lower()
+        is_image = suffix in [".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"]
+
+        # 复制到临时目录（统一按 PDF 路径格式存放，方便后续处理）
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            work_path = tmp_path / f"src{suffix}"
+
+            # 图片需转 PDF 再处理（保持 pipeline 统一）
+            if is_image:
+                try:
+                    img = Image.open(local_path)
+                    pdf_path = tmp_path / "src.pdf"
+                    img.convert("RGB").save(str(pdf_path), "PDF", resolution=150)
+                    print(f"  图片已转为 PDF: {pdf_path.stat().st_size / 1024:.1f} KB")
+                    work_path = pdf_path
+                except Exception as e:
+                    print(f"[FAIL] 图片转 PDF 失败: {e}")
+                    sys.exit(1)
+            else:
+                shutil.copy2(local_path, work_path)
+
+            # 文字提取（图片已转 PDF，统一走 extract_text_from_pdf）
+            text_result = extract_text_from_pdf(str(work_path))
+            content = text_result["content"] if text_result.get("ok") else ""
+            method = text_result.get("method", "?")
+            print(f"  提取约 {len(content)} 字（{method}）")
+
+            # pdfplumber_fallback 且字数极少（< 50）时，尝试本地 OCR 补全
+            if method == "pdfplumber_fallback" and len(content) < 50:
+                print("  pdfplumber 文字过少，尝试本地 OCR...")
+                ocr_success = False
+                for ocr_name, ocr_module in [
+                    ("rapidocr", "rapidocr_onnxruntime"),
+                    ("paddleocr", "paddleocr"),
+                    ("easyocr", "easyocr"),
+                ]:
+                    try:
+                        import importlib
+                        importlib.import_module(ocr_module)
+                    except Exception:
+                        continue
+                    try:
+                        if ocr_name == "rapidocr":
+                            import rapidocr_onnxruntime as rapidocr
+                            res, _ = rapidocr.RapidOCR()(str(local_path))
+                            if res:
+                                ocr_text = "\n".join([item[1] for item in res])
+                                if len(ocr_text.strip()) > 30:
+                                    content = ocr_text; method = "rapidocr"
+                                    print(f"  RapidOCR 提取约 {len(content)} 字"); ocr_success = True
+                        elif ocr_name == "paddleocr":
+                            from paddleocr import PaddleOCR
+                            raw = PaddleOCR(use_angle_cls=True, lang="ch", use_gpu=False).ocr(str(local_path))
+                            lines = [str(l[1][0]) for page in raw for l in (page or [])]
+                            ocr_text = "\n".join(lines)
+                            if len(ocr_text.strip()) > 30:
+                                content = ocr_text; method = "paddleocr"
+                                print(f"  PaddleOCR 提取约 {len(content)} 字"); ocr_success = True
+                        elif ocr_name == "easyocr":
+                            import easyocr
+                            reader = easyocr.Reader(["ch_sim", "en"])
+                            res = reader.readtext(str(local_path))
+                            ocr_text = "\n".join([item[1] for item in res])
+                            if len(ocr_text.strip()) > 30:
+                                content = ocr_text; method = "easyocr"
+                                print(f"  EasyOCR 提取约 {len(content)} 字"); ocr_success = True
+                        if ocr_success:
+                            break
+                    except Exception as e:
+                        print(f"  {ocr_name} 失败: {e}")
+                        continue
+                if not ocr_success:
+                    print("  未检测到可用本地 OCR 库，图片将按传票默认处理")
+
+            # 文书识别
+            if len(content.strip()) > 50:
+                classification = classify_and_extract(content)
+                doc_type = classification["type"]
+                fields = classification["fields"]
+            else:
+                doc_type = "传票"  # 本地上传的图片默认当传票处理（用户主动提交）
+                fields = {}
+
+            print(f"  类型: {doc_type}")
+            if fields:
+                print(f"  字段: {fields}")
+
+            # 传票必须提供案号（用户传入 --case-no 或从内容提取）
+            if doc_type == "传票" and not args.case_no:
+                # 从内容中尝试提取案号
+                for pattern in [
+                    r'[（(]\s*\d{2,4}\s*[)）]\s*\S{0,10}\s*\d{1,6}\s*号',
+                ]:
+                    m = re.search(pattern, content)
+                    if m:
+                        args.case_no = m.group().strip()
+                        print(f"  从内容提取案号: {args.case_no}")
+                        break
+
+            if doc_type == "传票" and not args.case_no:
+                print("[FAIL] 传票必须通过 --case-no 指定案号")
+                sys.exit(1)
+
+            # 生成正确命名的文件
+            if doc_type == "传票":
+                hd = re.sub(r'[<>:"/\\|?*]', '-', fields.get("hearing_date", "未知日期"))
+                cn = re.sub(r'[<>:"/\\|?*]', '-', fields.get("court_name", "未知法院"))
+                correct_name = f"{hd}_{cn}_传票.pdf"
+            elif doc_type == "判决书":
+                pl = re.sub(r'[<>:"/\\|?*]', '-', fields.get("plaintiff", "未知原告"))
+                df = re.sub(r'[<>:"/\\|?*]', '-', fields.get("defendant", "未知被告"))
+                ca = fields.get("cause_of_action", "纠纷")
+                suffix_2 = "" if ca.endswith("纠纷") else (ca + "纠纷" if ca else "纠纷")
+                rd = fields.get("read_date", datetime.now().strftime("%Y年%m月%d日"))
+                correct_name = f"{pl}与{df}{suffix_2}_{rd}.pdf"
+            else:
+                correct_name = local_path.name
+
+            correct_path = tmp_path / correct_name
+            shutil.copy2(work_path, correct_path)
+            print(f"  正确命名: {correct_name}")
+
+            # 上传飞书（指定案号文件夹）
+            feishu_parent = args.parent_folder or FEISHU_PARENT_FOLDER_TOKEN or ""
+            feishu_folder_token = get_or_create_feishu_folder(
+                args.case_no or "未知案号",
+                feishu_parent
+            )
+            feishu_result = upload_file_to_feishu(
+                str(correct_path), correct_name, feishu_folder_token
+            )
+
+            # 传票 → 创建日历
+            if doc_type == "传票" and not args.skip_calendar and fields:
+                calendar_result = create_feishu_calendar_event(fields, args.case_no or "")
+                if calendar_result.get("ok"):
+                    print(f"  [OK] 开庭日历已创建")
+                else:
+                    print(f"  [WARN] 日历创建失败: {calendar_result.get('error', '?')}")
+
+        print("\n[OK] 处理完成")
+        sys.exit(0)
+    # ── 法院 API 模式（原有流程）──────────────────────────────
 
     # 飞书父文件夹 token（CLI参数 > 环境变量 > 默认根目录）
     feishu_parent = args.parent_folder or FEISHU_PARENT_FOLDER_TOKEN or ""
