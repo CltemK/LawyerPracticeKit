@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-法院送达文书下载器 v7
+法院送达文书下载器 v9
 从 zxfw.court.gov.cn 下载法院送达 PDF，支持多文件、OCR 识别与自动命名，
-上传至飞书云空间，按案号归类（相同案号的文件放入同一文件夹）。
+上传至飞书云空间，按案号归类（一个案号一个文件夹）。
 
-文件夹命名规则：{案号}_{最新送达日期}
+文件夹命名规则：{案号}
 飞书上传路径：用户云空间根目录下
 
 用法:
-    python court_doc_downloader.py "<法院送达链接>"
+    python court_doc_downloader.py "<法院送达链接>" --case-no "<案号>"
     python court_doc_downloader.py "<链接>" --parent-folder "<folder_token>"   # 指定飞书父文件夹
     python court_doc_downloader.py "<链接>" --skip-calendar
     python court_doc_downloader.py "<链接>" --files "1,3,5"
@@ -74,10 +74,14 @@ except ImportError:
 # 飞书 Drive 操作：查找/创建文件夹、上传文件
 # ============================================================
 
-def find_feishu_folder(folder_name: str, parent_token: str = "") -> str | None:
+def find_feishu_folder(folder_name: str, parent_token: str = "", match_case_no_only: bool = False) -> str | None:
     """
-    在指定飞书文件夹中查找同名子文件夹，返回 folder_token；若找不到返回 None。
-    parent_token 为空表示在云空间根目录搜索。
+    在指定飞书文件夹中查找子文件夹，返回 folder_token；若找不到返回 None。
+
+    参数：
+        folder_name: 文件夹名称（完整名称，或仅案号部分）
+        parent_token: 父文件夹 token，空表示在云空间根目录搜索
+        match_case_no_only: True 时，将 folder_name 视为案号，查找名称以 "{case_no}_" 开头的文件夹
     """
     try:
         params = {"page_size": 200}
@@ -104,10 +108,20 @@ def find_feishu_folder(folder_name: str, parent_token: str = "") -> str | None:
 
         files = data if isinstance(data, list) else data.get("files", [])
         for f in files:
-            if f.get("type") == "folder" and f.get("name") == folder_name:
-                token = f.get("token", "")
-                print(f"    找到已有文件夹: {folder_name} -> {token}")
-                return token
+            if f.get("type") != "folder":
+                continue
+            fname = f.get("name", "")
+            if match_case_no_only:
+                # 匹配以 {case_no}_ 开头的文件夹（用于按案号查重）
+                if fname.startswith(folder_name + "_"):
+                    token = f.get("token", "")
+                    print(f"    找到已有文件夹（按案号匹配）: {fname} -> {token}")
+                    return token
+            else:
+                if fname == folder_name:
+                    token = f.get("token", "")
+                    print(f"    找到已有文件夹: {folder_name} -> {token}")
+                    return token
         return None
     except Exception as e:
         print(f"    [WARN] 查找飞书文件夹异常: {e}")
@@ -155,22 +169,67 @@ def create_feishu_folder(folder_name: str, parent_token: str = "") -> str | None
         return None
 
 
-def get_or_create_feishu_folder(folder_name: str, parent_token: str = "") -> str | None:
-    """查找同名文件夹，若不存在则创建。返回 folder_token。"""
-    existing = find_feishu_folder(folder_name, parent_token)
+def get_or_create_feishu_folder(case_no: str, parent_token: str = "", party_short: str = "") -> str | None:
+    """
+    查找指定案号对应的飞书文件夹（按案号前缀匹配），若不存在则创建。
+
+    参数：
+        case_no: 案号（用于匹配已有文件夹，查找以 {case_no}_ 开头的文件夹）
+        parent_token: 父文件夹 token
+        party_short: 当事人简称（用于创建新文件夹时拼接完整名称）
+    返回：folder_token
+    """
+    # 按案号前缀查找（去重）
+    existing = find_feishu_folder(case_no, parent_token, match_case_no_only=True)
     if existing:
         return existing
-    return create_feishu_folder(folder_name, parent_token)
+
+    # 不存在则创建，文件夹名为 {case_no}_{party_short}
+    full_name = case_no
+    if party_short:
+        full_name = f"{case_no}_{party_short}"
+    return create_feishu_folder(full_name, parent_token)
 
 
-def upload_file_to_feishu(local_path: str, file_name: str, folder_token: str = "") -> dict:
+def list_files_in_feishu_folder(folder_token: str) -> list:
+    """
+    列出飞书文件夹中已有的文件名，用于上传前去重。
+    返回 [file_name1, file_name2, ...]
+    """
+    try:
+        params = {"page_size": 200, "folder_token": folder_token}
+        proc = subprocess.run(
+            [LARK_CLI_FULLPATH, "drive", "files", "list",
+             "--params", json.dumps(params),
+             "--format", "json"],
+            capture_output=True, text=True, timeout=30,
+            encoding="utf-8", errors="replace",
+        )
+        if proc.returncode != 0:
+            return []
+        data = json.loads(proc.stdout) if proc.stdout.strip() else []
+        files = data if isinstance(data, list) else data.get("files", [])
+        return [f.get("name", "") for f in files if f.get("type") != "folder"]
+    except Exception:
+        return []
+
+
+def upload_file_to_feishu(local_path: str, file_name: str, folder_token: str = "", skip_if_exists: bool = True) -> dict:
     """
     将本地文件上传到飞书云空间（使用 +upload shortcut）。
-    返回 {"ok": True, "url": "...", "token": "..."} 或 {"ok": False, "error": "..."}
+    上传前检查目标文件夹中是否已有同名文件，有则跳过。
+    返回 {"ok": True, "url": "...", "token": "...", "skipped": False} 或 {"ok": False, "error": "..."}
     """
     local_path = Path(local_path)
     if not local_path.exists():
         return {"ok": False, "error": f"本地文件不存在: {local_path}"}
+
+    # 去重检查
+    if skip_if_exists and folder_token:
+        existing = list_files_in_feishu_folder(folder_token)
+        if file_name in existing:
+            print(f"    [SKIP] 文件夹中已存在同名文件，跳过上传: {file_name}")
+            return {"ok": True, "skipped": True, "url": "", "token": ""}
 
     # lark-cli 的 +upload 要求 --file 为相对路径，且当前目录不能有中文/特殊字符
     # 因此复制到临时目录再上传
@@ -223,7 +282,7 @@ def upload_file_to_feishu(local_path: str, file_name: str, folder_token: str = "
         file_token = data.get("data", {}).get("file_token", "")
         file_url = f"https://feishu.cn/drive/file/{file_token}" if file_token else ""
         print(f"    上传成功: {file_name} -> {file_url}")
-        return {"ok": True, "token": file_token, "url": file_url}
+        return {"ok": True, "token": file_token, "url": file_url, "skipped": False}
 
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "上传超时（文件可能过大）"}
@@ -676,8 +735,8 @@ def _build_case_metadata_txt(results: list, case_no: str, case_folder_name: str)
     lines.append(f"# 格式：送达日期 | 文书类型 | 文件名")
     lines.append(f"# 生成时间: {today}")
     lines.append("")
-    lines.append(f"{'送达日期':<14} {'文书类型':<8} {'文件名'}")
-    lines.append("-" * 60)
+    lines.append("| 送达日期 | 文书类型 | 文件名 |")
+    lines.append("|----------|----------|--------|")
 
     # 按送达日期排序
     sorted_results = sorted(results, key=lambda x: x.get("dt_cjsj", ""))
@@ -685,7 +744,6 @@ def _build_case_metadata_txt(results: list, case_no: str, case_folder_name: str)
     for r in sorted_results:
         dt = r.get("dt_cjsj", "")
         if dt:
-            # 格式化日期
             try:
                 dt_obj = parse_dt_cjsj(dt)
                 if dt_obj:
@@ -695,9 +753,10 @@ def _build_case_metadata_txt(results: list, case_no: str, case_folder_name: str)
         doc_type = r.get("doc_type", "其他")
         name = r.get("name", "未知")
         feishu_url = r.get("feishu_url", "")
-        lines.append(f"{dt or '未知':<14} {doc_type:<8} {name}")
         if feishu_url:
-            lines.append(f"{'':14} {'':8} 飞书: {feishu_url}")
+            lines.append(f"| {dt or '未知'} | {doc_type} | [{name}]({feishu_url}) |")
+        else:
+            lines.append(f"| {dt or '未知'} | {doc_type} | {name} |")
 
     lines.append("")
     lines.append("[备注]")
@@ -919,8 +978,11 @@ def rename_file(original_path: str, doc_type: str, fields: dict, doc_name: str) 
 # Step 6: 飞书日历创建
 # ============================================================
 
-def create_feishu_calendar_event(fields: dict, case_no_api: str = "") -> dict:
-    """为传票创建飞书开庭日程（写入团队日历）"""
+def create_feishu_calendar_event(fields: dict, case_no_api: str = "", party_short: str = "") -> dict:
+    """
+    为传票创建飞书开庭日程（写入团队日历）。
+    party_short: 当事人简称，如 "张三诉李四"，用于日历标题中显示。
+    """
     hearing_date_str = fields.get("hearing_date", "")
     court_name = fields.get("court_name", "")
     case_no = fields.get("case_no", "") or case_no_api
@@ -962,17 +1024,20 @@ def create_feishu_calendar_event(fields: dict, case_no_api: str = "") -> dict:
         print(f"  [WARN] 无法解析开庭日期: {hearing_date_str}")
         return {"ok": False, "error": "日期解析失败"}
 
-    # 用案号构建清晰标题（案号来自 API 或 OCR，优先使用 API 案号）
-    if case_no:
-        # 去掉案号中的空格，使格式清晰
-        case_no_clean = re.sub(r'\s+', '', case_no)
+    # 用案号 + 当事人简称构建清晰标题
+    case_no_clean = re.sub(r'\s+', '', case_no) if case_no else ""
+    if case_no_clean and party_short:
+        title = f"开庭：{case_no_clean} {party_short}"
+    elif case_no_clean:
         title = f"开庭：{case_no_clean}"
     else:
         title = f"开庭：{court_name}"
 
     description_parts = [f"法院：{court_name}"]
-    if case_no:
+    if case_no_clean:
         description_parts.append(f"案号：{case_no_clean}")
+    if party_short:
+        description_parts.append(f"当事人：{party_short}")
     description_parts.append(f"开庭日期：{hearing_date_str}")
     description = "\n".join(description_parts)
 
@@ -1026,8 +1091,8 @@ def process_single_file(
     temp_dir: Path,
     feishu_folder_token: str,
     skip_calendar: bool,
-    case_tag: str = "",
     case_no_api: str = "",
+    party_short: str = "",
 ) -> dict:
     """
     处理单个送达文书：下载（到临时目录）→ OCR → 识别 → 命名 → 上传飞书 → 清理临时文件。
@@ -1069,9 +1134,9 @@ def process_single_file(
     # 文字提取（OCR）
     text_result = extract_text_from_pdf(pdf_path, pdf_url=wjlj)
     if not text_result.get("ok"):
-        # 下载成功但 OCR 失败，仍继续上传飞书
+        # 下载成功但 OCR 失败，保持原始文件名，直接上传
         content = ""
-        print(f"  [WARN] 文字提取失败: {text_result.get('error')}，仍继续上传")
+        print(f"  [WARN] 文字提取失败: {text_result.get('error')}，保持原始文件名直接上传")
     else:
         content = text_result["content"]
         print(f"  提取约 {len(content)} 字（{text_result.get('method', '?')}）")
@@ -1107,23 +1172,33 @@ def process_single_file(
     # 优先级：调用参数 unified_case_no（用户通过 --case-no 提供）> OCR 提取 > API 提取
     result["case_no"] = case_no_in_content
 
-    # 重命名文件
-    if doc_type != "传票" and doc_type != "判决书" and case_no_in_content:
-        final_path = rename_file(pdf_path, doc_type, fields, f"{c_wsmc}_{case_no_in_content}")
+    # 重命名文件（仅识别成功时重命名；提取失败/识别失败保持原始文件名）
+    if not content:
+        # 文字提取完全失败，保持原始文件名
+        final_path = pdf_path
+    elif doc_type == "其他" and not case_no_in_content:
+        # 无法识别且未提取到案号，保持原始文件名
+        final_path = pdf_path
     else:
-        final_path = rename_file(pdf_path, doc_type, fields, c_wsmc)
+        if doc_type != "传票" and doc_type != "判决书" and case_no_in_content:
+            final_path = rename_file(pdf_path, doc_type, fields, f"{c_wsmc}_{case_no_in_content}")
+        else:
+            final_path = rename_file(pdf_path, doc_type, fields, c_wsmc)
 
     final_name = Path(final_path).name
 
-    # 上传到飞书
+    # 上传到飞书（带去重）
     print(f"  上传到飞书文件夹: {feishu_folder_token or '(根目录)'}")
-    feishu_result = upload_file_to_feishu(final_path, final_name, feishu_folder_token)
+    feishu_result = upload_file_to_feishu(final_path, final_name, feishu_folder_token, skip_if_exists=True)
     if feishu_result.get("ok"):
         result["feishu_url"] = feishu_result.get("url", "")
         result["feishu_token"] = feishu_result.get("token", "")
-        print(f"  飞书链接: {result['feishu_url']}")
+        if feishu_result.get("skipped"):
+            print(f"  已跳过（文件已存在）: {final_name}")
+        else:
+            print(f"  飞书链接: {result['feishu_url']}")
     else:
-        result["error"] = f"飞书上件失败: {feishu_result.get('error', '未知错误')}"
+        result["error"] = f"飞书上传失败: {feishu_result.get('error', '未知错误')}"
         # 上传失败仍然保留本地文件，不清理
         result["filepath"] = final_path
         return result
@@ -1140,7 +1215,7 @@ def process_single_file(
 
     # 传票建日历
     if doc_type == "传票" and not skip_calendar:
-        cal = create_feishu_calendar_event(fields, case_no_api=case_no_api)
+        cal = create_feishu_calendar_event(fields, case_no_api=case_no_api, party_short=party_short)
         result["calendar_event"] = cal
     elif doc_type == "传票":
         print("  跳过日历（--skip-calendar）")
@@ -1190,7 +1265,7 @@ def parse_dt_cjsj(dt_cjsj: str) -> datetime | None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="法院送达文书下载器 v8（飞书云空间 + 按案号归类 + 支持本地图片）"
+        description="法院送达文书下载器 v9（飞书云空间 + 按案号归类 + 支持本地图片）"
     )
     parser.add_argument("url", nargs="?", default=None, help="法院送达页面完整 URL")
     parser.add_argument("--local-file", default=None,
@@ -1205,7 +1280,10 @@ def main():
     parser.add_argument("--files", "-f", default=None, help="要下载的文件编号，如 1,3,5（默认全部）")
     parser.add_argument("--case-no", default=None,
                         help="案号（从用户短信中提取，如（2026）鄂0191民初2844号）。"
-                             "优先使用此参数；未提供时尝试从文书名OCR提取。")
+                             "短信自带案号最可靠，优先使用此参数；未提供时尝试从文书名提取。")
+    parser.add_argument("--party-short", default=None,
+                        help="当事人简称，用于日历标题，如 '张三诉李四'。"
+                             "识别失败时将提示用户补充。")
 
     args = parser.parse_args()
 
@@ -1326,8 +1404,14 @@ def main():
                         break
 
             if doc_type == "传票" and not args.case_no:
-                print("[FAIL] 传票必须通过 --case-no 指定案号")
-                sys.exit(1)
+                print("[WARN] 未能从图片中提取案号，请手动输入案号或使用 --case-no 参数")
+                user_input = input("  请输入案号（或直接回车退出）: ").strip()
+                if user_input:
+                    args.case_no = user_input
+                    print(f"  已使用手动输入案号: {args.case_no}")
+                else:
+                    print("[FAIL] 未提供案号，退出")
+                    sys.exit(1)
 
             # 生成正确命名的文件
             if doc_type == "传票":
@@ -1348,19 +1432,46 @@ def main():
             shutil.copy2(work_path, correct_path)
             print(f"  正确命名: {correct_name}")
 
-            # 上传飞书（指定案号文件夹）
+            # 上传飞书（指定案号文件夹，带去重）
+            # 解析当事人简称：优先用 args.party_short，其次从判决书提取，最后提示输入
+            party_for_folder = args.party_short or ""
+            if not party_for_folder and fields.get("plaintiff") and fields.get("defendant"):
+                party_for_folder = f"{fields.get('plaintiff')}诉{fields.get('defendant')}"
+            if not party_for_folder:
+                user_party = input("  请输入当事人简称（如：张三诉李四，用于飞书文件夹命名）: ").strip()
+                if user_party:
+                    party_for_folder = user_party
             feishu_parent = args.parent_folder or FEISHU_PARENT_FOLDER_TOKEN or ""
             feishu_folder_token = get_or_create_feishu_folder(
                 args.case_no or "未知案号",
-                feishu_parent
+                feishu_parent,
+                party_short=party_for_folder,
             )
             feishu_result = upload_file_to_feishu(
-                str(correct_path), correct_name, feishu_folder_token
+                str(correct_path), correct_name, feishu_folder_token, skip_if_exists=True
             )
 
-            # 传票 → 创建日历
+            # 传票 → 创建日历（当事人简称强制；未提供则提示用户补充）
             if doc_type == "传票" and not args.skip_calendar and fields:
-                calendar_result = create_feishu_calendar_event(fields, args.case_no or "")
+                party = args.party_short
+                if not party:
+                    print("[WARN] 未提供 --party-short，将提取当事人信息构建简称")
+                    pl = fields.get("plaintiff", "")
+                    df = fields.get("defendant", "")
+                    if pl and df:
+                        party = f"{pl}诉{df}"
+                        print(f"  从判决书提取当事人简称: {party}")
+                    elif not party:
+                        user_party = input("  请输入当事人简称（如：张三诉李四，或直接回车跳过日历创建）: ").strip()
+                        if user_party:
+                            party = user_party
+                            print(f"  已使用手动输入当事人简称: {party}")
+                        else:
+                            print("  [SKIP] 未提供当事人简称，跳过日历创建")
+
+                calendar_result = create_feishu_calendar_event(
+                    fields, args.case_no or "", party_short=party or ""
+                )
                 if calendar_result.get("ok"):
                     print(f"  [OK] 开庭日历已创建")
                 else:
@@ -1395,15 +1506,13 @@ def main():
         except Exception as e:
             print(f"[WARN] 文件编号解析失败，将下载全部: {e}")
 
-    # Step 2: 提取所有文件的案号，并按案号分组
-    # 每个案号 → { "case_no": str, "latest_date": datetime, "files": [...] }
-    # 关键原则：同一链接(sdbh)的所有文件必须进入同一个文件夹
+    # Step 2: 确定案号（一个链接一个案号）
+    # 优先使用用户通过 --case-no 参数直接提供的案号（从短信文本复制，最可靠）
+    # 其次尝试从文书名（c_wsmc）提取
     print("\n" + "=" * 60)
-    print("Step 2: 按案号分组并确定飞书文件夹名称")
+    print("Step 2: 确定案号")
     print("=" * 60)
 
-    # 优先使用用户通过 --case-no 参数直接提供的案号（从短信文本复制）
-    # 其次尝试从文书名（c_wsmc）提取；均无法提取时再用 OCR
     unified_case_no = args.case_no
     if not unified_case_no:
         for f in all_files:
@@ -1413,17 +1522,166 @@ def main():
                 unified_case_no = cn
                 break
 
-    # 若文书名均无案号，用 sdbh 充当案号标识（同链接同一 sdbh）
-    url_params = extract_params_from_url(args.url)
-    sdbh_fallback = url_params.get("sdbh", "") or url_params.get("qdbh", "")
+    if unified_case_no:
+        print(f"  案号: {unified_case_no}")
+    else:
+        print(f"  [WARN] 未能提取案号，将使用 '未知案号' 作为文件夹名")
+        unified_case_no = "未知案号"
 
-    if not unified_case_no:
-        # sdbh 格式类似 "ee69d8f216e9473487e410951415e492"，太乱，
-        # 改用"同链接所有文书同一文件夹"策略：用第一个文书名作为文件夹基础名
-        # 但所有文书共一个 case_no（即 None），保证同一文件夹
-        pass  # unified_case_no 保持 None
+    # Step 3: 创建或复用飞书文件夹（纯案号命名，不含日期）
+    print("\n" + "=" * 60)
+    print("Step 3: 创建/查找飞书文件夹")
+    print("=" * 60)
 
-    case_groups: dict[str, dict] = {}  # case_no -> group info
+    folder_token = get_or_create_feishu_folder(
+        unified_case_no,
+        feishu_parent,
+        party_short=args.party_short or "",
+    )
+    if not folder_token:
+        print(f"  [WARN] 无法创建/获取文件夹 {folder_name}，将上传到根目录")
+        folder_token = ""
+    else:
+        print(f"  文件夹就绪: {folder_name} -> {folder_token}")
+
+    # Step 4: 案号用于日历标题
+    case_no_api = unified_case_no
+
+    # Step 5: 创建临时目录，所有文件下载到这里
+    temp_base = Path(tempfile.gettempdir()) / "court_doc_downloader"
+    temp_base.mkdir(parents=True, exist_ok=True)
+    temp_dir = temp_base / datetime.now().strftime("%Y%m%d_%H%M%S")
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    print(f"\n[INFO] 临时工作目录: {temp_dir}")
+
+    # Step 6: 依次处理每个文件
+    print("\n" + "=" * 60)
+    print(f"Step 6: 处理 {len(selected)} 个文件（下载→OCR→上传飞书）")
+    print("=" * 60)
+
+    results = []
+
+    for i, file_info in enumerate(selected, 1):
+        print(f"\n[{i}/{len(selected)}]")
+        r = process_single_file(
+            file_info,
+            temp_dir,
+            folder_token,
+            args.skip_calendar,
+            case_no_api=case_no_api,
+            party_short=args.party_short or "",
+        )
+        results.append(r)
+
+    # 跳过后续旧的分组逻辑，直接到 Step 7
+    # 以下占位防止代码结构断裂，实际流程已在上文完成
+    case_groups = {}  # 不再使用
+    case_folder_tokens = {unified_case_no: folder_token}
+
+    # Step 7: 为每个案号文件夹生成并上传元数据 TXT
+    print(f"\n{'=' * 60}")
+    print("Step 7: 生成元数据 TXT")
+    print("=" * 60)
+
+    # 按 folder_token 分组 results（同一案件同一文件夹）
+    folder_results: dict[str, list] = {}
+    for r in results:
+        if not r.get("success"):
+            continue
+        token = r.get("feishu_folder_token", "")
+        if token not in folder_results:
+            folder_results[token] = []
+        folder_results[token].append(r)
+
+    for folder_token, group_results in folder_results.items():
+        # 取该组共同的案号和文件夹名
+        cn = list(set(r.get("case_no") or "" for r in group_results))
+        case_no_val = cn[0] if len(cn) == 1 else (unified_case_no or "未知案号")
+
+        # 文件夹名（纯案号）
+        folder_name = case_no_val
+
+        txt_content = _build_case_metadata_txt(group_results, case_no_val, folder_name)
+        txt_name = "案件信息.txt"
+
+        # 先写到临时文件，再上传到飞书
+        import tempfile as _tmp
+        txt_tmp = Path(_tmp.gettempdir()) / f"court_meta_{datetime.now().strftime('%Y%m%d%H%M%S')}.txt"
+        txt_tmp.write_text(txt_content, encoding="utf-8")
+
+        print(f"  生成: {txt_name}（{len(txt_content)} 字符）-> {folder_name}")
+        up = upload_file_to_feishu(str(txt_tmp), txt_name, folder_token, skip_if_exists=True)
+        if up.get("ok"):
+            print(f"    [OK] {up.get('url', '')}")
+        else:
+            print(f"    [FAIL] {up.get('error', '未知错误')}")
+        # 清理临时 TXT
+        try:
+            txt_tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    # Step 8: 汇总
+    print(f"\n{'=' * 60}")
+    print("处理结果汇总")
+    print("=" * 60)
+
+    success_count = sum(1 for r in results if r["success"])
+    for r in results:
+        status = "[OK]" if r["success"] else "[FAIL]"
+        feishu_url = r.get("feishu_url", "")
+        print(f"  {status} {r['name']}")
+        if feishu_url:
+            print(f"       飞书: {feishu_url}")
+        print(f"       类型: {r['doc_type'] or '-'}, 法院: {r['court']}")
+        cal = r.get("calendar_event")
+        if cal and isinstance(cal, dict) and cal.get("ok"):
+            print(f"       日历: [OK] {cal['title']}")
+        if r.get("error"):
+            print(f"       错误: {r['error']}")
+
+    print(f"\n成功: {success_count}/{len(results)}")
+
+    # 收集上传失败但本地存在的文件，移到本地法院送达目录
+    failed_local = [r for r in results if r.get("filepath") and Path(r["filepath"]).exists()]
+    if failed_local:
+        local_dir = Path(args.local_dir) if args.local_dir else DEFAULT_OUTPUT_DIR
+        local_dir.mkdir(parents=True, exist_ok=True)
+
+        # 创建按案号命名的文件夹
+        case_no_safe = re.sub(r'[<>"/\\|?*]', '_', unified_case_no or "未知案号")
+        save_dir = local_dir / case_no_safe
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        moved = 0
+        for r in failed_local:
+            src = Path(r["filepath"])
+            if src.exists():
+                dst = save_dir / src.name
+                shutil.move(str(src), str(dst))
+                print(f"  [LOCAL] {src.name} -> {save_dir}")
+                moved += 1
+        if moved:
+            print(f"[INFO] {moved} 个文件已保存到本地: {save_dir}")
+
+    # 清理临时目录（只清理本次创建的子目录中已处理的文件）
+    try:
+        # 只删除临时目录中剩余的文件（已移走或已上传的）
+        if temp_dir.exists():
+            remaining = list(temp_dir.iterdir())
+            if not remaining:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                print(f"[INFO] 已清理临时目录: {temp_dir}")
+            else:
+                print(f"[WARN] 临时目录中还有 {len(remaining)} 个未处理文件: {temp_dir}")
+    except Exception:
+        pass
+
+    sys.exit(0 if success_count == len(results) else 1)
+
+
+if __name__ == "__main__":
+    main()
 
     for f in all_files:
         wsmc = f.get("c_wsmc", "")
@@ -1471,7 +1729,11 @@ def main():
         date_str = g["latest_date"].strftime("%Y%m%d")
         folder_name = f"{cn}_{date_str}" if cn else f"未知案号_{date_str}"
 
-        folder_token = get_or_create_feishu_folder(folder_name, feishu_parent)
+        folder_token = get_or_create_feishu_folder(
+            cn or "未知案号",
+            feishu_parent,
+            party_short="",
+        )
         if not folder_token:
             print(f"  [WARN] 无法创建/获取文件夹 {folder_name}，将上传到根目录")
             folder_token = ""
