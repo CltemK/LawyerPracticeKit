@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LPR 数据管理</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        .section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+        }
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+        .form-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .form-group {
+            flex: 1;
+            min-width: 150px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-size: 14px;
+        }
+        input[type="date"], input[type="number"], select, textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        textarea {
+            min-height: 150px;
+            font-family: monospace;
+            resize: vertical;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+        .btn-danger {
+            background: linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%);
+            color: white;
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .data-table th {
+            background: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }
+        .data-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #eee;
+        }
+        .data-table tr:hover {
+            background: #f5f5f5;
+        }
+        .btn-small {
+            padding: 5px 12px;
+            font-size: 12px;
+        }
+        .import-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+        .import-help {
+            font-size: 13px;
+            color: #666;
+            line-height: 1.6;
+        }
+        .import-help code {
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+        .import-help pre {
+            background: #f8f8f8;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin-top: 10px;
+        }
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+        }
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+            font-weight: 600;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="index.html" class="back-link">← 返回计算器</a>
+        <h1>LPR 数据管理</h1>
+        <p class="subtitle">维护最新的 LPR 利率数据，确保计算准确性</p>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-label">1年期数据条数</div>
+                <div class="stat-value" id="count1Year">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">5年期数据条数</div>
+                <div class="stat-value" id="count5Year">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">最新1年期利率</div>
+                <div class="stat-value" id="latest1Year">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">最新5年期利率</div>
+                <div class="stat-value" id="latest5Year">-</div>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('view')">查看数据</div>
+            <div class="tab" onclick="switchTab('add')">添加数据</div>
+            <div class="tab" onclick="switchTab('import')">批量导入</div>
+        </div>
+
+        <!-- 查看数据 -->
+        <div id="tab-view" class="tab-content active">
+            <div class="section">
+                <div class="form-row" style="justify-content: space-between; align-items: center;">
+                    <h3 class="section-title" style="border: none; margin: 0;">LPR 数据列表</h3>
+                    <div>
+                        <button class="btn btn-success" onclick="exportData()">导出数据备份</button>
+                        <button class="btn btn-danger" onclick="clearAllData()">清空所有数据</button>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group" style="flex: 0 0 200px;">
+                        <label>筛选类型</label>
+                        <select id="filterType" onchange="renderDataList()">
+                            <option value="all">全部显示</option>
+                            <option value="1year">1年期 LPR</option>
+                            <option value="5year">5年期以上 LPR</option>
+                        </select>
+                    </div>
+                </div>
+
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>日期</th>
+                            <th>类型</th>
+                            <th>利率</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dataTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 添加数据 -->
+        <div id="tab-add" class="tab-content">
+            <div class="section">
+                <h3 class="section-title">添加单条 LPR 数据</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>日期</label>
+                        <input type="date" id="addDate">
+                    </div>
+                    <div class="form-group">
+                        <label>LPR 类型</label>
+                        <select id="addType">
+                            <option value="1year">1年期 LPR</option>
+                            <option value="5year">5年期以上 LPR</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>利率 (%)</label>
+                        <input type="number" id="addRate" step="0.01" placeholder="例如：3.45">
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="addSingleData()">添加数据</button>
+            </div>
+        </div>
+
+        <!-- 批量导入 -->
+        <div id="tab-import" class="tab-content">
+            <div class="section">
+                <h3 class="section-title">批量导入 LPR 数据</h3>
+                <div class="import-section">
+                    <div>
+                        <label>粘贴数据（支持中国银行网站表格直接粘贴）</label>
+                        <textarea id="importData" placeholder="从中国银行网站复制表格数据，直接粘贴即可&#10;LPR报价&#9;1年期&#9;5年期以上&#10;2025-12-22&#9;3.00%&#9;3.50%&#10;2025-11-20&#9;3.00%&#9;3.50%"></textarea>
+                        <div style="margin-top: 15px;">
+                            <button class="btn btn-primary" onclick="importBatchData()">导入数据</button>
+                            <button class="btn btn-secondary" onclick="document.getElementById('importData').value=''">清空</button>
+                        </div>
+                    </div>
+                    <div class="import-help">
+                        <strong>支持两种格式：</strong>
+
+                        <p style="margin-top: 10px;"><strong>格式1：中国银行网站表格（推荐）</strong></p>
+                        <p>直接从 <a href="https://www.boc.cn/fimarkets/lilv/fd32/201310/t20131031_2591219.html" target="_blank">中国银行 LPR 页面</a> 复制表格，粘贴即可</p>
+                        <pre>LPR报价&#9;1年期&#9;5年期以上
+2025-12-22&#9;3.00%&#9;3.50%
+2025-11-20&#9;3.00%&#9;3.50%</pre>
+
+                        <p style="margin-top: 15px;"><strong>格式2：自定义格式</strong></p>
+                        <ul style="margin: 5px 0; padding-left: 20px;">
+                            <li>每行一条记录</li>
+                            <li>格式：<code>日期,类型,利率</code></li>
+                            <li>类型：<code>1year</code> 或 <code>5year</code></li>
+                        </ul>
+                        <pre>2024-10-21,1year,3.10
+2024-10-21,5year,3.60</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="lpr-data.js"></script>
+    <script>
+        // 当前数据
+        let currentData = {
+            "1year": [],
+            "5year": []
+        };
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadData();
+            updateStats();
+            renderDataList();
+
+            // 设置默认日期为今天
+            document.getElementById('addDate').value = new Date().toISOString().slice(0, 10);
+        });
+
+        // 切换标签页
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+
+            event.target.classList.add('active');
+            document.getElementById('tab-' + tab).classList.add('active');
+        }
+
+        // 从 localStorage 或 LPR_DATA 加载数据
+        function loadData() {
+            const saved = localStorage.getItem('lprData');
+            if (saved) {
+                currentData = JSON.parse(saved);
+            } else if (typeof LPR_DATA !== 'undefined') {
+                // 使用默认数据
+                currentData = {
+                    "1year": [...LPR_DATA["1year"]],
+                    "5year": [...LPR_DATA["5year"]]
+                };
+            }
+        }
+
+        // 保存数据到 localStorage
+        function saveData() {
+            localStorage.setItem('lprData', JSON.stringify(currentData));
+            updateStats();
+            renderDataList();
+        }
+
+        // 更新统计
+        function updateStats() {
+            document.getElementById('count1Year').textContent = currentData["1year"].length;
+            document.getElementById('count5Year').textContent = currentData["5year"].length;
+
+            const latest1 = currentData["1year"].length > 0
+                ? currentData["1year"][currentData["1year"].length - 1].rate.toFixed(2) + '%'
+                : '-';
+            const latest5 = currentData["5year"].length > 0
+                ? currentData["5year"][currentData["5year"].length - 1].rate.toFixed(2) + '%'
+                : '-';
+
+            document.getElementById('latest1Year').textContent = latest1;
+            document.getElementById('latest5Year').textContent = latest5;
+        }
+
+        // 渲染数据列表
+        function renderDataList() {
+            const filter = document.getElementById('filterType').value;
+            const tbody = document.getElementById('dataTableBody');
+            tbody.innerHTML = '';
+
+            let allData = [];
+
+            if (filter === 'all' || filter === '1year') {
+                currentData["1year"].forEach(item => {
+                    allData.push({...item, type: '1year', typeName: '1年期 LPR'});
+                });
+            }
+
+            if (filter === 'all' || filter === '5year') {
+                currentData["5year"].forEach(item => {
+                    allData.push({...item, type: '5year', typeName: '5年期以上 LPR'});
+                });
+            }
+
+            // 按日期倒序排列
+            allData.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            allData.forEach(item => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${item.date}</td>
+                    <td>${item.typeName}</td>
+                    <td>${item.rate.toFixed(2)}%</td>
+                    <td>
+                        <button class="btn btn-danger btn-small" onclick="deleteData('${item.type}', '${item.date}')">删除</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        // 添加单条数据
+        function addSingleData() {
+            const date = document.getElementById('addDate').value;
+            const type = document.getElementById('addType').value;
+            const rate = parseFloat(document.getElementById('addRate').value);
+
+            if (!date || isNaN(rate)) {
+                alert('请填写完整的日期和利率');
+                return;
+            }
+
+            // 检查是否已存在
+            const exists = currentData[type].find(item => item.date === date);
+            if (exists) {
+                if (!confirm('该日期已存在数据，是否覆盖？')) {
+                    return;
+                }
+                currentData[type] = currentData[type].filter(item => item.date !== date);
+            }
+
+            // 添加数据并保持排序
+            currentData[type].push({date, rate});
+            currentData[type].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            saveData();
+            alert('添加成功！');
+
+            // 清空输入
+            document.getElementById('addRate').value = '';
+        }
+
+        // 删除数据
+        function deleteData(type, date) {
+            if (!confirm('确定要删除这条数据吗？')) {
+                return;
+            }
+
+            currentData[type] = currentData[type].filter(item => item.date !== date);
+            saveData();
+        }
+
+        // 批量导入
+        function importBatchData() {
+            const text = document.getElementById('importData').value.trim();
+            if (!text) {
+                alert('请输入要导入的数据');
+                return;
+            }
+
+            const lines = text.split('\n');
+            let success = 0;
+            let failed = 0;
+
+            // 检测数据格式
+            const firstDataLine = lines.find(line => line.trim() && !line.includes('LPR报价') && !line.includes('日期'));
+            const isTableFormat = firstDataLine && (firstDataLine.includes('\t') || firstDataLine.includes('   '));
+
+            if (isTableFormat) {
+                // 中国银行表格格式
+                success = importTableFormat(lines);
+            } else {
+                // 自定义格式
+                success = importCustomFormat(lines);
+            }
+
+            failed = lines.filter(l => l.trim()).length - success;
+
+            // 重新排序
+            currentData["1year"].sort((a, b) => new Date(a.date) - new Date(b.date));
+            currentData["5year"].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            saveData();
+            alert(`导入完成！成功：${success} 条，失败：${failed} 条`);
+            document.getElementById('importData').value = '';
+        }
+
+        // 导入中国银行表格格式
+        function importTableFormat(lines) {
+            let count = 0;
+
+            lines.forEach(line => {
+                line = line.trim();
+                if (!line) return;
+
+                // 跳过表头行
+                if (line.includes('LPR报价') || line.includes('日期')) return;
+
+                // 使用制表符分割（支持多个空格或制表符）
+                const parts = line.split(/[\t]+|\s{2,}/);
+                if (parts.length < 3) {
+                    // 尝试用空格分割
+                    const spaceParts = line.split(/\s+/);
+                    if (spaceParts.length >= 3) {
+                        parts.length = 0;
+                        parts.push(...spaceParts);
+                    } else {
+                        return;
+                    }
+                }
+
+                const date = parts[0].trim();
+                const rate1Year = parseFloat(parts[1].trim().replace('%', ''));
+                const rate5Year = parseFloat(parts[2].trim().replace('%', ''));
+
+                if (!date || isNaN(rate1Year) || isNaN(rate5Year)) {
+                    return;
+                }
+
+                // 删除已存在的
+                currentData["1year"] = currentData["1year"].filter(item => item.date !== date);
+                currentData["5year"] = currentData["5year"].filter(item => item.date !== date);
+
+                // 添加新数据
+                currentData["1year"].push({date, rate: rate1Year});
+                currentData["5year"].push({date, rate: rate5Year});
+                count++;
+            });
+
+            return count;
+        }
+
+        // 导入自定义格式
+        function importCustomFormat(lines) {
+            let count = 0;
+
+            lines.forEach(line => {
+                line = line.trim();
+                if (!line) return;
+
+                const parts = line.split(',');
+                if (parts.length < 3) {
+                    return;
+                }
+
+                const date = parts[0].trim();
+                const type = parts[1].trim();
+                const rate = parseFloat(parts[2].trim().replace('%', ''));
+
+                if (!date || (type !== '1year' && type !== '5year') || isNaN(rate)) {
+                    return;
+                }
+
+                // 删除已存在的
+                currentData[type] = currentData[type].filter(item => item.date !== date);
+                // 添加新数据
+                currentData[type].push({date, rate});
+                count++;
+            });
+
+            return count;
+        }
+
+        // 导出数据备份
+        function exportData() {
+            const dataStr = JSON.stringify(currentData, null, 2);
+            const blob = new Blob([dataStr], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `LPR_Data_Backup_${new Date().toISOString().slice(0,10)}.json`;
+            a.click();
+
+            URL.revokeObjectURL(url);
+        }
+
+        // 清空所有数据
+        function clearAllData() {
+            if (!confirm('确定要清空所有数据吗？此操作不可恢复！')) {
+                return;
+            }
+
+            currentData = {"1year": [], "5year": []};
+            saveData();
+            alert('数据已清空');
+        }
+    </script>
+</body>
+</html>
