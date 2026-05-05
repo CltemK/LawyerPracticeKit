@@ -1,0 +1,8 @@
+# 微信截图整理工具 - 依赖列表
+# Python 版本要求: 3.10, 3.11, 或 3.12
+
+PyQt5>=5.15.0
+Pillow>=9.0.0
+python-docx>=0.8.11
+requests>=2.28.0
+cryptography>=3.4.8

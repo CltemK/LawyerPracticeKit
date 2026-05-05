@@ -39,10 +39,7 @@ court_documents/
 downloads/
 output/
 
-# .NET build artifacts
-bin/
-obj/
-publish/
+# C / Win32 build artifacts
+*.obj
+*.res
 *.exe
-*.dll
-*.pdb
