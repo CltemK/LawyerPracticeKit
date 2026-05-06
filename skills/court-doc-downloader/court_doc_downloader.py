@@ -60,8 +60,9 @@ LARK_CLI_FULLPATH = _get_lark_cli_path()
 _DEFAULT_CALENDAR_ID = "feishu.cn_k182nDBgsfAG1svUFhbUQe@group.calendar.feishu.cn"
 TEAM_CALENDAR_ID = os.environ.get("COURT_TEAM_CALENDAR_ID", "") or _DEFAULT_CALENDAR_ID
 
-# 飞书上传父文件夹 token（通过环境变量或 CLI --parent-folder 传入）
-FEISHU_PARENT_FOLDER_TOKEN = os.environ.get("COURT_FEISHU_FOLDER_TOKEN", "")
+# 飞书上传父文件夹 token（环境变量 > 默认值）
+_DEFAULT_PARENT_FOLDER_TOKEN = "OOvefqK1RlaWx5d7xwocXjFHn8f"  # 团队法院文书送达中心
+FEISHU_PARENT_FOLDER_TOKEN = os.environ.get("COURT_FEISHU_FOLDER_TOKEN", "") or _DEFAULT_PARENT_FOLDER_TOKEN
 
 # 可选依赖
 try:
