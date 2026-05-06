@@ -56,8 +56,9 @@ def _get_lark_cli_path() -> str:
 
 LARK_CLI_FULLPATH = _get_lark_cli_path()
 
-# 团队日历 ID（通过环境变量配置，不含默认值）
-TEAM_CALENDAR_ID = os.environ.get("COURT_TEAM_CALENDAR_ID", "")
+# 团队日历 ID（环境变量 > 默认值）
+_DEFAULT_CALENDAR_ID = "feishu.cn_k182nDBgsfAG1svUFhbUQe@group.calendar.feishu.cn"
+TEAM_CALENDAR_ID = os.environ.get("COURT_TEAM_CALENDAR_ID", "") or _DEFAULT_CALENDAR_ID
 
 # 飞书上传父文件夹 token（通过环境变量或 CLI --parent-folder 传入）
 FEISHU_PARENT_FOLDER_TOKEN = os.environ.get("COURT_FEISHU_FOLDER_TOKEN", "")
@@ -136,7 +137,7 @@ def create_feishu_folder(folder_name: str, parent_token: str = "") -> str | None
     try:
         body = {"name": folder_name, "folder_token": parent_token or ""}
         proc = subprocess.run(
-            [LARK_CLI_FULLPATH, "drive", "files", "create_folder",
+            [LARK_CLI_FULLPATH, "drive", "files", "create_folder", "--yes",
              "--data", json.dumps(body, ensure_ascii=False)],
             capture_output=True, text=True, timeout=30,
             encoding="utf-8", errors="replace",
@@ -1103,6 +1104,11 @@ def extract_summons_fields(content: str) -> dict:
             if time_m:
                 hearing_date += time_m.group(1)
 
+    # 清理 PDF 文字提取产生的乱码时间（如 "9：009:00" → "9:00"）
+    hearing_date = re.sub(r'(\d{1,2})[:：](\d{2})\d+[:：]\d+', r'\1:\2', hearing_date)
+    # 再清理可能的其他重复时间后缀
+    hearing_date = re.sub(r'(?<=\d{2}:\d{2}).+$', '', hearing_date)
+
     case_no = None
     for pattern in [
         # 案号含空格：（2026）鄂 0103 行初 23 号
@@ -1302,7 +1308,7 @@ def create_feishu_calendar_event(fields: dict, case_no_api: str = "", party_shor
 
     try:
         proc = subprocess.run(
-            [LARK_CLI_FULLPATH, "calendar", "events", "create",
+            [LARK_CLI_FULLPATH, "calendar", "events", "create", "--yes",
              "--params", params, "--data", body_json],
             capture_output=True, text=True, timeout=30,
             encoding="utf-8", errors="replace",
